@@ -10,7 +10,7 @@ import requests
 
 from flask import Flask, flash, redirect, render_template_string, request, session, url_for
 
-from app_common import Job, configure, db, get_token, set_value, value
+from app_common import Job, Media, configure, db, get_token, set_value, value
 
 CAIRO = ZoneInfo("Africa/Cairo")
 app = Flask(__name__)
@@ -43,10 +43,13 @@ def _send_due_jobs():
                             .order_by(Job.due_at).limit(20).all())
                     for job in jobs:
                         try:
-                            response = requests.post(
-                                f"https://api.telegram.org/bot{token}/sendMessage",
-                                json={"chat_id": job.channel, "text": job.text}, timeout=30,
-                            )
+                            method = "sendVideo" if job.media and job.media.mime.startswith("video/") else ("sendPhoto" if job.media else "sendMessage")
+                            endpoint = f"https://api.telegram.org/bot{token}/{method}"
+                            if job.media:
+                                field = "video" if method == "sendVideo" else "photo"
+                                response = requests.post(endpoint, data={"chat_id": job.channel, "caption": job.text}, files={field: (job.media.filename, job.media.data, job.media.mime)}, timeout=120)
+                            else:
+                                response = requests.post(endpoint, json={"chat_id": job.channel, "text": job.text}, timeout=30)
                             data = response.json()
                             if not response.ok or not data.get("ok"):
                                 raise RuntimeError(data.get("description", "Telegram send failed"))
@@ -145,7 +148,15 @@ def dashboard():
                 if due <= datetime.utcnow(): raise ValueError("اختار موعدًا في المستقبل.")
                 channel = request.form["channel"].strip(); text = request.form["text"].strip()
                 if not channel or not text: raise ValueError("اكتب القناة ونص المنشور.")
-                db.session.add(Job(channel=channel, text=text, due_at=due)); db.session.commit(); flash("تمت الجدولة.", "ok")
+                job = Job(channel=channel, text=text, due_at=due)
+                upload = request.files.get("media")
+                if upload and upload.filename:
+                    raw = upload.read()
+                    if len(raw) > 45 * 1024 * 1024: raise ValueError("حجم الملف كبير؛ استخدم ملفًا أقل من 45 ميجابايت.")
+                    mime = upload.mimetype or "application/octet-stream"
+                    if not (mime.startswith("image/") or mime.startswith("video/")): raise ValueError("ارفع صورة أو فيديو فقط.")
+                    job.media = Media(filename=upload.filename, mime=mime, data=raw)
+                db.session.add(job); db.session.commit(); flash("تمت الجدولة.", "ok")
             except Exception as exc: flash(str(exc), "error")
         elif action == "daily":
             try:
@@ -196,7 +207,7 @@ BASE = """<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><
 DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>جدولة تليجرام السحابية — توقيت القاهرة</div></div><div><span class='tag'>{{ 'البوت جاهز' if token_ready else 'أضف توكن البوت في Railway' }}</span> · <a href='/logout' style='color:#ddd'>خروج</a></div></div>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class='flash {{category}}'>{{msg}}</div>{% endfor %}{% endwith %}
 <section class='card'><h2>القنوات ويوزر التواصل</h2><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'>{% for i in range(3) %}<div><label>القناة {{i+1}}</label><input name='channel_{{i}}' value='{{channels[i][0]}}' placeholder='@channel'><label style='margin-top:10px'>يوزر التواصل</label><input name='contact_{{i}}' value='{{channels[i][1]}}' placeholder='@username'></div>{% endfor %}</div><p><button>حفظ الإعدادات</button></p></form></section>
-<div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><button>إضافة للجدول</button></form></section>
+<div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><label>صورة أو فيديو اختياري</label><input name='media' type='file' accept='image/*,video/*'><button>إضافة للجدول</button></form></section>
 <section class='card'><h2>خطة اليوم</h2><p class='muted'>5 بوستات مستقلة لكل قناة، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم</button></p></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
 <section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th></th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""

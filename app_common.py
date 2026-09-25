@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import LargeBinary
 
 db = SQLAlchemy()
 
@@ -21,6 +22,15 @@ class Job(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     sent_at = db.Column(db.DateTime, nullable=True)
     source = db.Column(db.String(32), nullable=False, default="manual")
+    media = db.relationship("Media", backref="job", uselist=False, cascade="all, delete-orphan")
+
+
+class Media(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey("job.id"), nullable=False, unique=True)
+    filename = db.Column(db.String(255), nullable=False)
+    mime = db.Column(db.String(120), nullable=False)
+    data = db.Column(LargeBinary, nullable=False)
 
 
 def configure(app):
