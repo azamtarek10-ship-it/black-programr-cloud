@@ -165,7 +165,15 @@ def dashboard():
         return redirect(url_for("dashboard"))
     jobs = Job.query.order_by(Job.due_at.desc()).limit(80).all()
     channels = [(value(f"channel_{i}"), value(f"contact_{i}")) for i in range(3)]
-    return render_template_string(BASE, body=DASHBOARD, jobs=jobs, channels=channels, cairo_text=cairo_text, today=cairo_now().date().isoformat(), token_ready=bool(get_token()))
+    inner = render_template_string(
+        DASHBOARD,
+        jobs=jobs,
+        channels=channels,
+        cairo_text=cairo_text,
+        today=cairo_now().date().isoformat(),
+        token_ready=bool(get_token()),
+    )
+    return render_template_string(BASE, body=inner)
 
 
 BASE = """<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BLACK PROGRAMR</title><style>
