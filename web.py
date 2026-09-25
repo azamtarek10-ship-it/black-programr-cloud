@@ -1,8 +1,12 @@
 import os
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
+
+import requests
 
 from flask import Flask, flash, redirect, render_template_string, request, session, url_for
 
@@ -12,6 +16,40 @@ CAIRO = ZoneInfo("Africa/Cairo")
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_urlsafe(32))
 configure(app)
+
+
+def _send_due_jobs():
+    """Run the scheduler inside the always-on web service as a safety net."""
+    while True:
+        try:
+            with app.app_context():
+                token = get_token()
+                now = datetime.utcnow()
+                if token:
+                    jobs = (Job.query.filter(Job.status == "pending", Job.due_at <= now,
+                                             Job.due_at >= now - timedelta(hours=2))
+                            .order_by(Job.due_at).limit(20).all())
+                    for job in jobs:
+                        try:
+                            response = requests.post(
+                                f"https://api.telegram.org/bot{token}/sendMessage",
+                                json={"chat_id": job.channel, "text": job.text}, timeout=30,
+                            )
+                            data = response.json()
+                            if not response.ok or not data.get("ok"):
+                                raise RuntimeError(data.get("description", "Telegram send failed"))
+                            job.status, job.sent_at, job.error = "sent", datetime.utcnow(), None
+                        except Exception as exc:
+                            job.status, job.error = "failed", str(exc)[:900]
+                    if jobs:
+                        db.session.commit()
+        except Exception:
+            # The dashboard must remain available even during a temporary DB/network issue.
+            db.session.rollback()
+        time.sleep(20)
+
+
+threading.Thread(target=_send_due_jobs, name="telegram-scheduler", daemon=True).start()
 
 POSTS = [
     [
