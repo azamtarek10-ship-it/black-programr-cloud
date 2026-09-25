@@ -10,3 +10,5 @@
 - `TELEGRAM_BOT_TOKEN`: توكن البوت من BotFather. لا يُرفع إلى GitHub.
 
 أنشئ خدمتين من نفس المستودع في Railway: خدمة **Web** بالأمر `gunicorn --workers 1 --threads 4 --bind 0.0.0.0:$PORT web:app`، وخدمة **Worker** بالأمر `python worker.py`. أضف خدمة PostgreSQL واربط `DATABASE_URL` بالخدمتين.
+
+Deployment source: Railway production service.
