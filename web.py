@@ -73,6 +73,9 @@ POSTS = [
         "مفيش داعي للاستعجال 👋\nاختار المنصة اللي تناسبك، استخدم MSA1، وراجع الإيداع والسحب بنفسك: 120 لسبين بيتر و190 لـ22Bet.",
         "لو واقف عند أول خطوة، اعمل الآتي: افتح التسجيل، اكتب MSA1، راجع بياناتك، وبعدها شوف المبلغ المناسب لك. البداية 120 أو 190 حسب المنصة.",
         "نصيحة من أخوك: خليك مع التفاصيل الرسمية—MSA1 للتسجيل، و120 لسبين بيتر و190 لـ22Bet.",
+        "اسمعها مني بهدوء: كود FOOX هو MSA1 ومش بيتغير.\nSpinBetter من 120 و22Bet من 190، وبعد التسجيل اقرأ كل الشروط براحتك.",
+        "قبل ما تدوس تأكيد، بص على اختيارك مرة أخيرة.\nMSA1 في خانة التسجيل، والبداية 120 في SpinBetter أو 190 في 22Bet.",
+        "لو حد جديد سألك يبدأ إزاي، قوله يمشي بالترتيب: تسجيل، MSA1، مراجعة الشروط، ثم اختيار المبلغ المناسب.\nالأرقام: 120 و190 حسب المنصة.",
     ],
     [
         "يا كبير، لو ناوي تبدأ خلينا نعملها صح 🐯\nسجّل بياناتك بهدوء، اكتب SMA1، والحد الأدنى للإيداع 140. لو حاجة وقفت اسأل قبل ما تكمل.",
@@ -80,6 +83,9 @@ POSTS = [
         "رسالة صغيرة توفر عليك لخبطة: خُد معلوماتك من المصدر الرسمي، وكود التسجيل عندك هو SMA1.",
         "لو التسجيل فتح قدامك ومش عارف الخطوة الجاية، ابعت وصف المشكلة من غير بيانات خاصة. الإيداع يبدأ من 140 بعد ما تراجع الشروط.",
         "متدخلش تعمل كل حاجة مرة واحدة 👌\nسجّل، اكتب SMA1، اقرأ التفاصيل، وبعدها قرر المبلغ المناسب لك—الحد الأدنى 140.",
+        "يا معلم، خُد الدقيقة اللي تراجع فيها كل خانة.\nSMA1 في التسجيل، وإيداع البداية 140 بعد قراءة القواعد.",
+        "لو أنت جاهز تبدأ، خليك على الرسمي: افتح التسجيل، اكتب SMA1، وشوف تفاصيل الإيداع قبل التأكيد.\nالحد الأدنى 140.",
+        "التسجيل السليم بيريّحك بعدين 🐯\nاستخدم SMA1، راجع بياناتك، وخلي قرار الإيداع 140 أو أكثر حسب اختيارك.",
     ],
     [
         "أهلًا يا صديقي ✨ لو هتسجل، ابدأ بهدوء واكتب SMA1 في خانة البروموكود. أقل إيداع 140، وراجع الشروط قبل التأكيد.",
@@ -87,6 +93,9 @@ POSTS = [
         "لو دي أول مرة ليك، مفيش مشكلة تسأل 👋\nاكتب SMA1 وقت التسجيل، ولو ظهر خطأ ابعته ونوضح لك الخطوة.",
         "قرارك لازم يبقى وأنت فاهمه. راجع كل خانة، استخدم SMA1، واعرف إن أقل مبلغ للإيداع 140.",
         "خدها نصيحة أخوية: متجريش ورا أي وعد كبير. التفاصيل عندك—SMA1 للتسجيل، و140 حد أدنى، والشروط قبل أي خطوة.",
+        "مساء الخير يا أهل جولدن ✨\nلو هتبدأ، خلي SMA1 معاك وقت التسجيل. المبلغ الأدنى 140، وبعدها راجع كل التفاصيل.",
+        "خلّي قرارك مبني على فهم مش استعجال.\nاكتب SMA1، شوف شروط الإيداع والسحب، واعرف إن البداية من 140.",
+        "جاي تسأل عن أول خطوة؟ بسيطة: افتح التسجيل، ضع SMA1، ثم راجع المبلغ والشروط.\nأقل إيداع 140.",
     ],
 ]
 
@@ -175,11 +184,11 @@ def dashboard():
                     contact = value(f"contact_{ci}")
                     if not channel: continue
                     shift = date.timetuple().tm_yday % len(POSTS[ci])
-                    for pi in range(5):
+                    for pi in range(8):
                         text = POSTS[ci][(pi + shift) % len(POSTS[ci])]
                         if contact: text += "\n\n" + contact
                         # بوست جديد كل ساعة؛ فرق 5 دقائق فقط بين القنوات.
-                        due = (base + timedelta(minutes=pi * 60 + ci * 5)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                        due = (base + timedelta(minutes=pi * 70 + ci * 5)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
                         db.session.add(Job(channel=channel, text=text, due_at=due, source="daily")); made += 1
                 db.session.commit(); flash(f"تم وضع {made} منشورًا مختلفًا لخطة اليوم.", "ok")
             except Exception as exc: db.session.rollback(); flash(str(exc), "error")
@@ -208,7 +217,7 @@ DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>�
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class='flash {{category}}'>{{msg}}</div>{% endfor %}{% endwith %}
 <section class='card'><h2>القنوات ويوزر التواصل</h2><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'>{% for i in range(3) %}<div><label>القناة {{i+1}}</label><input name='channel_{{i}}' value='{{channels[i][0]}}' placeholder='@channel'><label style='margin-top:10px'>يوزر التواصل</label><input name='contact_{{i}}' value='{{channels[i][1]}}' placeholder='@username'></div>{% endfor %}</div><p><button>حفظ الإعدادات</button></p></form></section>
 <div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><label>صورة أو فيديو اختياري</label><input name='media' type='file' accept='image/*,video/*'><button>إضافة للجدول</button></form></section>
-<section class='card'><h2>خطة اليوم</h2><p class='muted'>5 بوستات مستقلة لكل قناة، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم</button></p></form></section>
+<section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مستقلة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم</button></p></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
 <section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th></th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
