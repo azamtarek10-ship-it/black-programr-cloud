@@ -177,7 +177,9 @@ def dashboard():
                 # استبدال خطة اليوم السحابية فقط، من دون لمس المنشورات اليدوية.
                 start = datetime.combine(date, datetime.min.time()).replace(tzinfo=CAIRO).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
                 end = start + timedelta(days=1)
-                Job.query.filter(Job.source == "daily", Job.due_at >= start, Job.due_at < end, Job.status == "pending").delete(synchronize_session=False)
+                # عند إعادة إنشاء الخطة، احذف كل المنشورات المعلّقة لذلك اليوم
+                # حتى لا تختلط القوالب القديمة بالجديدة.
+                Job.query.filter(Job.due_at >= start, Job.due_at < end, Job.status == "pending").delete(synchronize_session=False)
                 made = 0
                 for ci in range(3):
                     channel = value(f"channel_{ci}")
