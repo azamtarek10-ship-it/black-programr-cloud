@@ -188,8 +188,6 @@ def dashboard():
                     shift = date.timetuple().tm_yday % len(POSTS[ci])
                     for pi in range(8):
                         text = POSTS[ci][(pi + shift) % len(POSTS[ci])]
-                        if ci == 0:
-                            text += "\n\nللطلب: صورة تسجيل يظهر فيها MSA1 + صورة إيداع. اخفِ أي بيانات شخصية أو أرقام معاملات قبل الإرسال."
                         if contact: text += "\n\n" + contact
                         # بوست جديد كل ساعة؛ فرق 5 دقائق فقط بين القنوات.
                         due = (base + timedelta(minutes=pi * 70 + ci * 5)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
