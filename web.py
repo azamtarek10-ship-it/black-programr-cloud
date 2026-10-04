@@ -99,6 +99,36 @@ POSTS = [
     ],
 ]
 
+DAILY_ENDINGS = [
+    "لو محتاج تفصيل في خطوة، اسألنا ونوضحها لك.",
+    "خد وقتك، واقرأ الشروط قبل ما تكمل.",
+    "المهم تبدأ وأنت فاهم كل خطوة.",
+    "اكتب سؤالك بوضوح ونساعدك في الخطوة التالية.",
+    "اختار اللي يناسبك من غير استعجال.",
+    "تابع التحديثات الجديدة أولًا بأول.",
+    "كل خطوة واضحة لما تمشي فيها واحدة واحدة.",
+    "لو ظهر لك شيء غير مفهوم، ابعته ونشرحه لك.",
+]
+
+
+def unique_daily_text(channel_index, post_index, day, used):
+    """Choose a never-before-used exact text, rotating both body and ending."""
+    bodies = POSTS[channel_index]
+    body_shift = (day.toordinal() + channel_index * 11) % len(bodies)
+    ending_shift = (day.toordinal() // 7 + channel_index * 3) % len(DAILY_ENDINGS)
+    for attempt in range(len(bodies) * len(DAILY_ENDINGS)):
+        body = bodies[(post_index + body_shift + attempt) % len(bodies)]
+        ending = DAILY_ENDINGS[(post_index + ending_shift + attempt) % len(DAILY_ENDINGS)]
+        candidate = f"{body}\n\n{ending}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+    # This branch is only reached after all combinations were consumed;
+    # the date marker still guarantees an exact-text difference.
+    candidate = f"{bodies[(post_index + body_shift) % len(bodies)]}\n\n{DAILY_ENDINGS[ending_shift]}\n\nتحديث {day.isoformat()} — منشور {post_index + 1}"
+    used.add(candidate)
+    return candidate
+
 
 def require_login(view):
     @wraps(view)
@@ -185,9 +215,10 @@ def dashboard():
                     channel = value(f"channel_{ci}")
                     contact = value(f"contact_{ci}")
                     if not channel: continue
-                    shift = date.timetuple().tm_yday % len(POSTS[ci])
+                    # امنع التكرار النصي مع أي منشور سابق لنفس القناة.
+                    used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
                     for pi in range(8):
-                        text = POSTS[ci][(pi + shift) % len(POSTS[ci])]
+                        text = unique_daily_text(ci, pi, date, used)
                         if contact: text += "\n\n" + contact
                         # بوست جديد كل ساعة؛ فرق 5 دقائق فقط بين القنوات.
                         due = (base + timedelta(minutes=pi * 70 + ci * 5)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
