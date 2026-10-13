@@ -20,13 +20,16 @@ configure(app)
 # إعدادات القنوات الافتراضية تُحفظ في قاعدة البيانات أول مرة فقط.
 DEFAULTS = {
     "channel_0": "@FOOX_HUUB", "contact_0": "@EAr_ay",
-    "channel_1": "@TIGER_BET_1", "contact_1": "@jomanaXRN",
-    "channel_2": "@GOLDEN_WOL", "contact_2": "@Malak_BTM",
+    "channel_1": "", "contact_1": "",
+    "channel_2": "", "contact_2": "",
 }
 with app.app_context():
     for _key, _default in DEFAULTS.items():
         if not value(_key):
             set_value(_key, _default)
+    db.session.commit()
+    # FOOX HUB هي القناة الوحيدة المعتمدة الآن؛ أوقف أي منشورات معلّقة للقنوات القديمة.
+    db.session.query(Job).filter(Job.status == "pending", Job.channel != DEFAULTS["channel_0"]).update({"status": "cancelled"}, synchronize_session=False)
     db.session.commit()
 
 
@@ -179,7 +182,7 @@ def dashboard():
     if request.method == "POST":
         action = request.form.get("action")
         if action == "settings":
-            for index in range(3):
+            for index in range(1):
                 set_value(f"channel_{index}", request.form.get(f"channel_{index}", "").strip())
                 set_value(f"contact_{index}", request.form.get(f"contact_{index}", "").strip())
                 set_value(f"paused_{request.form.get(f'channel_{index}', '').strip()}", "1" if request.form.get(f"paused_{index}") else "0")
@@ -214,7 +217,7 @@ def dashboard():
                 # حتى لا تختلط القوالب القديمة بالجديدة.
                 Job.query.filter(Job.due_at >= start, Job.due_at < end, Job.status == "pending").delete(synchronize_session=False)
                 made = 0
-                for ci in range(3):
+                for ci in range(1):
                     channel = value(f"channel_{ci}")
                     contact = value(f"contact_{ci}")
                     if not channel: continue
@@ -246,7 +249,7 @@ def dashboard():
         return redirect(url_for("dashboard"))
     jobs = Job.query.order_by(Job.due_at.desc()).limit(80).all()
     stats = {status: Job.query.filter(Job.status == status).count() for status in ("pending", "sent", "failed")}
-    channels = [(value(f"channel_{i}"), value(f"contact_{i}")) for i in range(3)]
+    channels = [(value("channel_0"), value("contact_0"))]
     channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
     inner = render_template_string(
         DASHBOARD,
@@ -262,13 +265,13 @@ def dashboard():
 
 
 BASE = """<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BLACK PROGRAMR</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0d0d14;color:#eee;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:1180px;margin:auto;padding:28px}h1{margin:0;color:#a970ff}h2{font-size:18px;margin:0 0 16px;color:#ddd}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.tag{color:#a970ff}.card{background:#191924;border:1px solid #2b2b3d;border-radius:14px;padding:20px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}label{display:block;color:#bdb9ce;font-size:13px;margin-bottom:6px}input,textarea,select{width:100%;background:#10101a;border:1px solid #424254;border-radius:8px;color:white;padding:11px;font:inherit}textarea{min-height:110px;resize:vertical}button{background:#8f5af7;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:bold;cursor:pointer}.danger{background:#e34a6f}.muted{color:#a5a1b4;font-size:13px}.flash{padding:10px;border-radius:8px;margin-bottom:14px}.ok{background:#163a2a}.error{background:#4a1e2c}.stats{display:flex;gap:12px;flex-wrap:wrap}.stats span{background:#10101a;border:1px solid #424254;border-radius:8px;padding:10px 15px;color:#d8c8ff}.pause{margin-top:10px;display:flex;align-items:center;gap:6px}.pause input{width:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;text-align:right;border-bottom:1px solid #303041;vertical-align:top}.pending{color:#e6c15a}.sent{color:#65d99a}.failed{color:#ff6a86}.login{max-width:420px;margin:15vh auto;text-align:center}.login input{margin:18px 0}@media(max-width:760px){.grid,.fields{grid-template-columns:1fr}.wrap{padding:16px}table{font-size:11px}}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#21133d 0,#0d0d14 40%);color:#eee;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:1180px;margin:auto;padding:32px}h1{margin:0;color:#b57bff;letter-spacing:.5px}h2{font-size:18px;margin:0 0 16px;color:#eee}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}.tag{color:#bd8bff}.card{background:rgba(25,25,36,.94);border:1px solid #37324f;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.16)}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.fields{display:grid;grid-template-columns:1fr;gap:10px;max-width:520px}label{display:block;color:#c5bfd8;font-size:13px;margin-bottom:6px}input,textarea,select{width:100%;background:#11111b;border:1px solid #514866;border-radius:10px;color:white;padding:12px;font:inherit}input:focus,textarea:focus,select:focus{outline:2px solid #8f5af7;border-color:#9e6bff}textarea{min-height:120px;resize:vertical}button{background:linear-gradient(135deg,#9b63ff,#7140d3);color:white;border:0;border-radius:10px;padding:12px 18px;font-weight:bold;cursor:pointer;box-shadow:0 5px 14px rgba(126,74,231,.25)}button:hover{filter:brightness(1.12);transform:translateY(-1px)}.danger{background:#df4d74}.muted{color:#aaa4ba;font-size:13px;line-height:1.8}.flash{padding:12px;border-radius:10px;margin-bottom:14px}.ok{background:#163a2a}.error{background:#4a1e2c}.stats{display:flex;gap:12px;flex-wrap:wrap}.stats span{background:#11111b;border:1px solid #514866;border-radius:10px;padding:12px 18px;color:#dfd2ff}.pause{margin-top:10px;display:flex;align-items:center;gap:6px}.pause input{width:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px;text-align:right;border-bottom:1px solid #353248;vertical-align:top}.pending{color:#e6c15a}.sent{color:#65d99a}.failed{color:#ff6a86}.login{max-width:420px;margin:15vh auto;text-align:center}.login input{margin:18px 0}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:16px}table{font-size:11px}}
 </style></head><body><main class='wrap'>{{ body|safe }}</main></body></html>"""
 
 DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>جدولة تليجرام السحابية — توقيت القاهرة</div></div><div><span class='tag'>{{ 'البوت جاهز' if token_ready else 'أضف توكن البوت في Railway' }}</span> · <a href='/logout' style='color:#ddd'>خروج</a></div></div>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class='flash {{category}}'>{{msg}}</div>{% endfor %}{% endwith %}
 <section class='card'><h2>ملخص سريع</h2><div class='stats'><span>معلّق: {{stats['pending']}}</span><span>تم إرساله: {{stats['sent']}}</span><span>فشل: {{stats['failed']}}</span></div></section>
-<section class='card'><h2>القنوات ويوزر التواصل</h2><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'>{% for i in range(3) %}<div><label>القناة {{i+1}}</label><input name='channel_{{i}}' value='{{channels[i][0]}}' placeholder='@channel'><label style='margin-top:10px'>يوزر التواصل</label><input name='contact_{{i}}' value='{{channels[i][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_{{i}}' {% if channel_paused[i] %}checked{% endif %}> إيقاف هذه القناة</label></div>{% endfor %}</div><p><button>حفظ الإعدادات</button></p></form></section>
+<section class='card'><h2>إعدادات FOOX HUB</h2><p class='muted'>القناة الوحيدة المفعّلة حاليًا. القنوات القديمة أُوقفت ولن تستقبل منشورات جديدة.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>القناة</label><input name='channel_0' value='{{channels[0][0]}}' placeholder='@FOOX_HUUB'><label>يوزر التواصل</label><input name='contact_0' value='{{channels[0][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_0' {% if channel_paused[0] %}checked{% endif %}> إيقاف النشر مؤقتًا</label></div><p><button>حفظ إعدادات FOOX</button></p></form></section>
 <div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><label>صورة أو فيديو اختياري</label><input name='media' type='file' accept='image/*,video/*'><button>إضافة للجدول</button></form></section>
 <section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مستقلة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم</button></p></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
