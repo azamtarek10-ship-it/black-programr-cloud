@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import requests
 from flask import Flask
 
-from app_common import Job, configure, db, get_token
+from app_common import Job, configure, db, get_token, value
 
 app = Flask(__name__)
 configure(app)
@@ -30,6 +30,8 @@ def run_once():
                              Job.due_at >= now - timedelta(hours=2))
             .order_by(Job.due_at).limit(20).all())
     for job in jobs:
+        if value(f"paused_{job.channel}", "0") == "1":
+            continue
         try:
             telegram_send(token, job)
             job.status, job.sent_at, job.error = "sent", datetime.utcnow(), None

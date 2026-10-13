@@ -42,6 +42,8 @@ def _send_due_jobs():
                                              Job.due_at >= now - timedelta(hours=2))
                             .order_by(Job.due_at).limit(20).all())
                     for job in jobs:
+                        if value(f"paused_{job.channel}", "0") == "1":
+                            continue
                         try:
                             method = "sendVideo" if job.media and job.media.mime.startswith("video/") else ("sendPhoto" if job.media else "sendMessage")
                             endpoint = f"https://api.telegram.org/bot{token}/{method}"
@@ -180,6 +182,7 @@ def dashboard():
             for index in range(3):
                 set_value(f"channel_{index}", request.form.get(f"channel_{index}", "").strip())
                 set_value(f"contact_{index}", request.form.get(f"contact_{index}", "").strip())
+                set_value(f"paused_{request.form.get(f'channel_{index}', '').strip()}", "1" if request.form.get(f"paused_{index}") else "0")
             db.session.commit(); flash("تم حفظ القنوات ويوزر التواصل.", "ok")
         elif action == "manual":
             try:
@@ -228,9 +231,23 @@ def dashboard():
         elif action == "delete":
             job = db.session.get(Job, int(request.form["job_id"]))
             if job and job.status == "pending": db.session.delete(job); db.session.commit(); flash("تم حذف المنشور.", "ok")
+        elif action == "edit":
+            try:
+                job = db.session.get(Job, int(request.form["job_id"]))
+                if not job or job.status != "pending": raise ValueError("لا يمكن تعديل هذا المنشور الآن.")
+                new_text = request.form.get("text", "").strip()
+                new_time = to_utc(request.form["due_at"])
+                if not new_text or new_time <= datetime.utcnow(): raise ValueError("اكتب نصًا وموعدًا مستقبليًا.")
+                duplicate = Job.query.filter(Job.channel == job.channel, Job.text == new_text, Job.id != job.id).first()
+                if duplicate: raise ValueError("هذا النص مستخدم بالفعل لنفس القناة.")
+                job.text, job.due_at = new_text, new_time
+                db.session.commit(); flash("تم تعديل المنشور.", "ok")
+            except Exception as exc: db.session.rollback(); flash(str(exc), "error")
         return redirect(url_for("dashboard"))
     jobs = Job.query.order_by(Job.due_at.desc()).limit(80).all()
+    stats = {status: Job.query.filter(Job.status == status).count() for status in ("pending", "sent", "failed")}
     channels = [(value(f"channel_{i}"), value(f"contact_{i}")) for i in range(3)]
+    channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
     inner = render_template_string(
         DASHBOARD,
         jobs=jobs,
@@ -238,21 +255,24 @@ def dashboard():
         cairo_text=cairo_text,
         today=cairo_now().date().isoformat(),
         token_ready=bool(get_token()),
+        stats=stats,
+        channel_paused=channel_paused,
     )
     return render_template_string(BASE, body=inner)
 
 
 BASE = """<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>BLACK PROGRAMR</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0d0d14;color:#eee;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:1180px;margin:auto;padding:28px}h1{margin:0;color:#a970ff}h2{font-size:18px;margin:0 0 16px;color:#ddd}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.tag{color:#a970ff}.card{background:#191924;border:1px solid #2b2b3d;border-radius:14px;padding:20px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}label{display:block;color:#bdb9ce;font-size:13px;margin-bottom:6px}input,textarea,select{width:100%;background:#10101a;border:1px solid #424254;border-radius:8px;color:white;padding:11px;font:inherit}textarea{min-height:110px;resize:vertical}button{background:#8f5af7;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:bold;cursor:pointer}.danger{background:#e34a6f}.muted{color:#a5a1b4;font-size:13px}.flash{padding:10px;border-radius:8px;margin-bottom:14px}.ok{background:#163a2a}.error{background:#4a1e2c}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;text-align:right;border-bottom:1px solid #303041;vertical-align:top}.pending{color:#e6c15a}.sent{color:#65d99a}.failed{color:#ff6a86}.login{max-width:420px;margin:15vh auto;text-align:center}.login input{margin:18px 0}@media(max-width:760px){.grid,.fields{grid-template-columns:1fr}.wrap{padding:16px}table{font-size:11px}}
+*{box-sizing:border-box}body{margin:0;background:#0d0d14;color:#eee;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:1180px;margin:auto;padding:28px}h1{margin:0;color:#a970ff}h2{font-size:18px;margin:0 0 16px;color:#ddd}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.tag{color:#a970ff}.card{background:#191924;border:1px solid #2b2b3d;border-radius:14px;padding:20px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}label{display:block;color:#bdb9ce;font-size:13px;margin-bottom:6px}input,textarea,select{width:100%;background:#10101a;border:1px solid #424254;border-radius:8px;color:white;padding:11px;font:inherit}textarea{min-height:110px;resize:vertical}button{background:#8f5af7;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:bold;cursor:pointer}.danger{background:#e34a6f}.muted{color:#a5a1b4;font-size:13px}.flash{padding:10px;border-radius:8px;margin-bottom:14px}.ok{background:#163a2a}.error{background:#4a1e2c}.stats{display:flex;gap:12px;flex-wrap:wrap}.stats span{background:#10101a;border:1px solid #424254;border-radius:8px;padding:10px 15px;color:#d8c8ff}.pause{margin-top:10px;display:flex;align-items:center;gap:6px}.pause input{width:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;text-align:right;border-bottom:1px solid #303041;vertical-align:top}.pending{color:#e6c15a}.sent{color:#65d99a}.failed{color:#ff6a86}.login{max-width:420px;margin:15vh auto;text-align:center}.login input{margin:18px 0}@media(max-width:760px){.grid,.fields{grid-template-columns:1fr}.wrap{padding:16px}table{font-size:11px}}
 </style></head><body><main class='wrap'>{{ body|safe }}</main></body></html>"""
 
 DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>جدولة تليجرام السحابية — توقيت القاهرة</div></div><div><span class='tag'>{{ 'البوت جاهز' if token_ready else 'أضف توكن البوت في Railway' }}</span> · <a href='/logout' style='color:#ddd'>خروج</a></div></div>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class='flash {{category}}'>{{msg}}</div>{% endfor %}{% endwith %}
-<section class='card'><h2>القنوات ويوزر التواصل</h2><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'>{% for i in range(3) %}<div><label>القناة {{i+1}}</label><input name='channel_{{i}}' value='{{channels[i][0]}}' placeholder='@channel'><label style='margin-top:10px'>يوزر التواصل</label><input name='contact_{{i}}' value='{{channels[i][1]}}' placeholder='@username'></div>{% endfor %}</div><p><button>حفظ الإعدادات</button></p></form></section>
+<section class='card'><h2>ملخص سريع</h2><div class='stats'><span>معلّق: {{stats['pending']}}</span><span>تم إرساله: {{stats['sent']}}</span><span>فشل: {{stats['failed']}}</span></div></section>
+<section class='card'><h2>القنوات ويوزر التواصل</h2><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'>{% for i in range(3) %}<div><label>القناة {{i+1}}</label><input name='channel_{{i}}' value='{{channels[i][0]}}' placeholder='@channel'><label style='margin-top:10px'>يوزر التواصل</label><input name='contact_{{i}}' value='{{channels[i][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_{{i}}' {% if channel_paused[i] %}checked{% endif %}> إيقاف هذه القناة</label></div>{% endfor %}</div><p><button>حفظ الإعدادات</button></p></form></section>
 <div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><label>صورة أو فيديو اختياري</label><input name='media' type='file' accept='image/*,video/*'><button>إضافة للجدول</button></form></section>
 <section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مستقلة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم</button></p></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
-<section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th></th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
+<section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
 
 if __name__ == "__main__":
