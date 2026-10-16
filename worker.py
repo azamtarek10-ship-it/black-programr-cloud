@@ -18,6 +18,9 @@ def telegram_send(token, job):
     data = response.json()
     if not response.ok or not data.get("ok"):
         raise RuntimeError(data.get("description", f"Telegram HTTP {response.status_code}"))
+    message_id = (data.get("result") or {}).get("message_id")
+    if message_id and str(job.channel).startswith("@"):
+        job.telegram_link = f"https://t.me/{job.channel.lstrip('@')}/{message_id}"
 
 
 def run_once():

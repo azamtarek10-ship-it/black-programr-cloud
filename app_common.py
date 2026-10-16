@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import LargeBinary
+from sqlalchemy import LargeBinary, text
 
 db = SQLAlchemy()
 
@@ -22,6 +22,7 @@ class Job(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     sent_at = db.Column(db.DateTime, nullable=True)
     source = db.Column(db.String(32), nullable=False, default="manual")
+    telegram_link = db.Column(db.Text, nullable=True)
     media = db.relationship("Media", backref="job", uselist=False, cascade="all, delete-orphan")
 
 
@@ -42,6 +43,10 @@ def configure(app):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        # إضافة العمود للتثبيتات القديمة بدون حذف أي بيانات.
+        if database_url.startswith("postgresql://"):
+            db.session.execute(text("ALTER TABLE job ADD COLUMN IF NOT EXISTS telegram_link TEXT"))
+            db.session.commit()
 
 
 def value(key, fallback=""):
