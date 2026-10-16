@@ -27,6 +27,8 @@ with app.app_context():
     for _key, _default in DEFAULTS.items():
         if not value(_key):
             set_value(_key, _default)
+    # FOOX متوقف مؤقتًا بناءً على طلب صاحب المشروع.
+    set_value("paused_@FOOX_HUUB", "1")
     db.session.commit()
     db.session.commit()
 
