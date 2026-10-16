@@ -20,7 +20,7 @@ configure(app)
 # إعدادات القنوات الافتراضية تُحفظ في قاعدة البيانات أول مرة فقط.
 DEFAULTS = {
     "channel_0": "@FOOX_HUUB", "contact_0": "@EAr_ay",
-    "channel_1": "@Cretaiveplus", "contact_1": "",
+    "channel_1": "@Cretaiveplus", "contact_1": "@EAr_ay",
     "channel_2": "", "contact_2": "",
 }
 with app.app_context():
@@ -148,16 +148,21 @@ def unique_daily_text(channel_index, post_index, day, used, template_index=None)
     return candidate
 
 
+def add_contact_line(text, contact):
+    contact = (contact or "").strip()
+    return f"{text}\n\nللتواصل: {contact}" if contact else text
+
+
 # إصلاح أي خطة bulk معلّقة أُنشئت بالقوالب القديمة قبل تحديث WowBet.
 with app.app_context():
     _bulk_channel = value("channel_1") or "@Cretaiveplus"
     _bulk_rows = (Job.query.filter(Job.channel == _bulk_channel, Job.source == "bulk-122", Job.status == "pending")
                   .order_by(Job.due_at).all())
-    if _bulk_rows and any("SMA1" in (row.text or "") or "140" in (row.text or "") for row in _bulk_rows):
+    if _bulk_rows and any("WowBet" not in (row.text or "") or "للتواصل:" not in (row.text or "") for row in _bulk_rows):
         _used = {row.text for row in Job.query.filter(Job.channel == _bulk_channel, Job.id.notin_([item.id for item in _bulk_rows])).all()}
         _day = datetime.now(CAIRO).date()
         for _index, _row in enumerate(_bulk_rows):
-            _row.text = unique_daily_text(1, _index, _day, _used, template_index=3)
+            _row.text = add_contact_line(unique_daily_text(1, _index, _day, _used, template_index=3), value("contact_1"))
         db.session.commit()
 
 
@@ -251,7 +256,7 @@ def dashboard():
                     used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
                     for pi in range(8):
                         text = unique_daily_text(ci, pi, date, used, template_index=(0 if ci == 0 else 3))
-                        if contact: text += "\n\n" + contact
+                        text = add_contact_line(text, contact)
                         # بوست جديد كل ساعة؛ فرق 5 دقائق فقط بين القنوات.
                         due = (base + timedelta(minutes=pi * 70 + ci * 5)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
                         db.session.add(Job(channel=channel, text=text, due_at=due, source="daily")); made += 1
@@ -274,7 +279,7 @@ def dashboard():
                 used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
                 span_seconds = max(60, int((finish - now).total_seconds()))
                 for index in range(122):
-                    text = unique_daily_text(1, index, now.date(), used, template_index=3)
+                    text = add_contact_line(unique_daily_text(1, index, now.date(), used, template_index=3), value("contact_1"))
                     due = now + timedelta(seconds=(span_seconds * index / 121 if index else 0))
                     db.session.add(Job(channel=channel, text=text, due_at=due.astimezone(ZoneInfo("UTC")).replace(tzinfo=None), source="bulk-122"))
                 db.session.commit()
