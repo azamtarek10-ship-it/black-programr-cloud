@@ -148,7 +148,15 @@ def unique_daily_text(channel_index, post_index, day, used, template_index=None)
         body = bodies[(post_index + body_shift + attempt) % len(bodies)]
         ending = DAILY_ENDINGS[(post_index + ending_shift + attempt // len(bodies)) % len(DAILY_ENDINGS)]
         prefix = DAILY_PREFIXES[(post_index + attempt // (len(bodies) * len(DAILY_ENDINGS))) % len(DAILY_PREFIXES)]
-        candidate = f"{prefix}{body}\n\n{ending}"
+        # Rotate short, medium, and long forms so consecutive posts do not
+        # have the same rhythm or visual length.
+        length_mode = (post_index + attempt + channel_index) % 3
+        if length_mode == 0:
+            candidate = f"{prefix}{body}"
+        elif length_mode == 1:
+            candidate = f"{prefix}{body}\n\n{ending}"
+        else:
+            candidate = f"{prefix}{body}\n\n{ending}\n\nخد وقتك واقرأ التفاصيل كاملة قبل أي خطوة."
         if candidate not in used:
             used.add(candidate)
             return candidate
@@ -234,10 +242,14 @@ def dashboard():
     if request.method == "POST":
         action = request.form.get("action")
         if action == "settings":
-            for index in range(2):
-                set_value(f"channel_{index}", request.form.get(f"channel_{index}", "").strip())
-                set_value(f"contact_{index}", request.form.get(f"contact_{index}", "").strip())
-                set_value(f"paused_{request.form.get(f'channel_{index}', '').strip()}", "1" if request.form.get(f"paused_{index}") else "0")
+            for index in range(3):
+                channel_key, contact_key, paused_key = f"channel_{index}", f"contact_{index}", f"paused_{index}"
+                if channel_key in request.form:
+                    channel_value = request.form.get(channel_key, "").strip()
+                    set_value(channel_key, channel_value)
+                    if contact_key in request.form:
+                        set_value(contact_key, request.form.get(contact_key, "").strip())
+                    set_value(f"paused_{channel_value}", "1" if request.form.get(paused_key) else "0")
             db.session.commit(); flash("تم حفظ القنوات ويوزر التواصل.", "ok")
         elif action == "manual":
             try:
@@ -269,7 +281,7 @@ def dashboard():
                 # حتى لا تختلط القوالب القديمة بالجديدة.
                 Job.query.filter(Job.due_at >= start, Job.due_at < end, Job.status == "pending").delete(synchronize_session=False)
                 made = 0
-                for ci in range(2):
+                for ci in range(3):
                     channel = value(f"channel_{ci}")
                     contact = value(f"contact_{ci}")
                     if not channel: continue
@@ -344,12 +356,14 @@ def dashboard():
     sent_links = (Job.query.filter(Job.telegram_link.isnot(None))
                   .order_by(Job.sent_at.asc()).all())
     stats = {status: Job.query.filter(Job.status == status).count() for status in ("pending", "sent", "failed")}
-    channels = [(value(f"channel_{index}"), value(f"contact_{index}")) for index in range(2) if value(f"channel_{index}")]
+    channel_values = [(value(f"channel_{index}"), value(f"contact_{index}")) for index in range(3)]
+    channels = [row for row in channel_values if row[0]]
     channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
     inner = render_template_string(
-        DASHBOARD,
+        DASHBOARD.replace("<div class='grid'>", CHANNEL_ADDON + "<div class='grid'>", 1),
         jobs=jobs,
         channels=channels,
+        channel_values=channel_values,
         cairo_text=cairo_text,
         today=cairo_now().date().isoformat(),
         token_ready=bool(get_token()),
@@ -379,6 +393,8 @@ DASHBOARD = """<div class='top'><div style='display:flex;align-items:center;just
 <section class='card'><h2>روابط المنشورات المرسلة</h2><p class='muted'>يتم حفظ الرابط تلقائيًا بعد نجاح الإرسال. العدد الحالي: {{sent_links|length}} رابطًا.</p><textarea readonly style='min-height:180px'>{% for item in sent_links %}{{item.telegram_link}}{% if not loop.last %}\n{% endif %}{% endfor %}</textarea></section>
 <section class='card'><h2>الجدول والسجل</h2><p class='muted'>الإحصاءات تُدخل من أرقام القناة الفعلية؛ لا يتم اختلاقها أو شراؤها.</p><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إحصاءات</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.telegram_link %}<br><a href='{{job.telegram_link}}' target='_blank' style='color:#8fc7ff'>فتح رابط المنشور</a>{% endif %}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='sent' %}<details><summary>{{job.views if job.views is not none else 'إضافة'}}</summary><form method='post'><input type='hidden' name='action' value='metrics'><input type='hidden' name='job_id' value='{{job.id}}'><input name='views' type='number' min='0' placeholder='المشاهدات' value='{{job.views if job.views is not none else ""}}'><input name='reactions' type='number' min='0' placeholder='التفاعلات' value='{{job.reactions if job.reactions is not none else ""}}'><input name='comments' type='number' min='0' placeholder='التعليقات' value='{{job.comments if job.comments is not none else ""}}'><input name='link_clicks' type='number' min='0' placeholder='النقرات' value='{{job.link_clicks if job.link_clicks is not none else ""}}'><button>حفظ الإحصاءات</button></form></details>{% else %}—{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
+
+CHANNEL_ADDON = """<section class='card' style='margin-top:18px'><h2>إضافة قناة إضافية</h2><p class='muted'>اكتب يوزر القناة بصيغة @channel ثم اضغط حفظ. ستظهر القناة فورًا في قائمة المنشور وخطة اليوم.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>يوزر القناة</label><input name='channel_2' value='{{channel_values[2][0]}}' placeholder='@channel'><label>يوزر التواصل</label><input name='contact_2' value='{{channel_values[2][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_2' {% if channel_paused|length > 2 and channel_paused[2] %}checked{% endif %}> إيقاف القناة مؤقتًا</label></div><p><button>حفظ القناة</button></p></form></section>"""
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
