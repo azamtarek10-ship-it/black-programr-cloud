@@ -130,22 +130,30 @@ DAILY_ENDINGS = [
     "لو ظهر لك شيء غير مفهوم، ابعته ونشرحه لك.",
 ]
 
+# تنويعات قصيرة طبيعية تمنع تكرار النص عند إنشاء خطط كبيرة، من غير إضافة
+# أرقام أو عبارات تقنية داخل المنشور.
+DAILY_PREFIXES = [
+    "", "معلومة سريعة: ", "خلّيك مركز: ", "قبل ما تبدأ: ",
+    "نقطة مهمة: ", "للتوضيح: ", "خد بالك: ", "بهدوء: ",
+]
+
 
 def unique_daily_text(channel_index, post_index, day, used, template_index=None):
     """Choose a never-before-used exact text, rotating both body and ending."""
     bodies = POSTS[channel_index if template_index is None else template_index]
     body_shift = (day.toordinal() + channel_index * 11) % len(bodies)
     ending_shift = (day.toordinal() // 7 + channel_index * 3) % len(DAILY_ENDINGS)
-    for attempt in range(len(bodies) * len(DAILY_ENDINGS)):
+    combinations = len(bodies) * len(DAILY_ENDINGS) * len(DAILY_PREFIXES)
+    for attempt in range(combinations):
         body = bodies[(post_index + body_shift + attempt) % len(bodies)]
-        ending = DAILY_ENDINGS[(post_index + ending_shift + attempt) % len(DAILY_ENDINGS)]
-        candidate = f"{body}\n\n{ending}"
+        ending = DAILY_ENDINGS[(post_index + ending_shift + attempt // len(bodies)) % len(DAILY_ENDINGS)]
+        prefix = DAILY_PREFIXES[(post_index + attempt // (len(bodies) * len(DAILY_ENDINGS))) % len(DAILY_PREFIXES)]
+        candidate = f"{prefix}{body}\n\n{ending}"
         if candidate not in used:
             used.add(candidate)
             return candidate
-    # This branch is only reached after all combinations were consumed;
-    # the date marker still guarantees an exact-text difference.
-    candidate = f"{bodies[(post_index + body_shift) % len(bodies)]}\n\n{DAILY_ENDINGS[ending_shift]}\n\nتحديث {day.isoformat()} — منشور {post_index + 1}"
+    # احتياطي نادر جدًا: لا نضيف أي رقم أو تاريخ داخل المنشور.
+    candidate = f"{DAILY_PREFIXES[post_index % len(DAILY_PREFIXES)]}{bodies[(post_index + body_shift) % len(bodies)]}\n\n{DAILY_ENDINGS[ending_shift]}"
     used.add(candidate)
     return candidate
 
@@ -160,7 +168,7 @@ with app.app_context():
     _bulk_channel = value("channel_1") or "@Cretaiveplus"
     _bulk_rows = (Job.query.filter(Job.channel == _bulk_channel, Job.source == "bulk-122", Job.status == "pending")
                   .order_by(Job.due_at).all())
-    if _bulk_rows and any("WowBet" not in (row.text or "") or "للتواصل:" not in (row.text or "") for row in _bulk_rows):
+    if _bulk_rows and any("WowBet" not in (row.text or "") or "للتواصل:" not in (row.text or "") or "تحديث " in (row.text or "") for row in _bulk_rows):
         _used = {row.text for row in Job.query.filter(Job.channel == _bulk_channel, Job.id.notin_([item.id for item in _bulk_rows])).all()}
         _day = datetime.now(CAIRO).date()
         for _index, _row in enumerate(_bulk_rows):
