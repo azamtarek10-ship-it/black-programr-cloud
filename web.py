@@ -239,6 +239,30 @@ def dashboard():
                         db.session.add(Job(channel=channel, text=text, due_at=due, source="daily")); made += 1
                 db.session.commit(); flash(f"تم وضع {made} منشورًا مختلفًا لخطة اليوم.", "ok")
             except Exception as exc: db.session.rollback(); flash(str(exc), "error")
+        elif action == "bulk_122":
+            try:
+                channel = value("channel_1") or "@Cretaiveplus"
+                if not channel: raise ValueError("أضف قناة Cretaiveplus أولًا.")
+                now = cairo_now().replace(second=0, microsecond=0)
+                finish = now.replace(hour=22, minute=0)
+                if now >= finish: raise ValueError("الوقت الحالي بعد 10 مساءً؛ أنشئ الخطة غدًا.")
+                # إيقاف FOOX وإلغاء أي منشورات معلّقة له حتى لا يرسل أثناء التجربة.
+                set_value("paused_@FOOX_HUUB", "1")
+                Job.query.filter(Job.channel == value("channel_0"), Job.status == "pending").update({"status": "cancelled"}, synchronize_session=False)
+                # استبدال خطة Cretaiveplus المعلّقة لليوم فقط.
+                start_utc = datetime.combine(now.date(), datetime.min.time()).replace(tzinfo=CAIRO).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                end_utc = start_utc + timedelta(days=1)
+                Job.query.filter(Job.channel == channel, Job.due_at >= start_utc, Job.due_at < end_utc, Job.status == "pending").delete(synchronize_session=False)
+                used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
+                span_seconds = max(60, int((finish - now).total_seconds()))
+                for index in range(122):
+                    text = unique_daily_text(1, index, now.date(), used)
+                    due = now + timedelta(seconds=(span_seconds * index / 121 if index else 0))
+                    db.session.add(Job(channel=channel, text=text, due_at=due.astimezone(ZoneInfo("UTC")).replace(tzinfo=None), source="bulk-122"))
+                db.session.commit()
+                interval = span_seconds / 121 / 60
+                flash(f"تم إيقاف FOOX وجدولة 122 منشورًا لـ {channel} حتى 10 مساءً (فاصل تقريبي {interval:.1f} دقيقة).", "ok")
+            except Exception as exc: db.session.rollback(); flash(str(exc), "error")
         elif action == "delete":
             job = db.session.get(Job, int(request.form["job_id"]))
             if job and job.status == "pending": db.session.delete(job); db.session.commit(); flash("تم حذف المنشور.", "ok")
@@ -282,6 +306,7 @@ DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>�
 <section class='card'><h2>إعدادات القنوات</h2><p class='muted'>FOOX وCretaiveplus يعملان بشكل مستقل. اترك يوزر التواصل فارغًا إذا لم ترد إضافته أسفل المنشور.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>FOOX HUB</label><input name='channel_0' value='{{channels[0][0] if channels|length > 0 else "@FOOX_HUUB"}}' placeholder='@FOOX_HUUB'><label>يوزر التواصل في FOOX</label><input name='contact_0' value='{{channels[0][1] if channels|length > 0 else ""}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_0' {% if channel_paused[0] %}checked{% endif %}> إيقاف FOOX مؤقتًا</label><label>القناة الجديدة</label><input name='channel_1' value='{{channels[1][0] if channels|length > 1 else "@Cretaiveplus"}}' placeholder='@Cretaiveplus'><label>يوزر التواصل في Cretaiveplus</label><input name='contact_1' value='{{channels[1][1] if channels|length > 1 else ""}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_1' {% if channel_paused|length > 1 and channel_paused[1] %}checked{% endif %}> إيقاف Cretaiveplus مؤقتًا</label></div><p><button>حفظ إعدادات القنوات</button></p></form></section>
 <div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><label>صورة أو فيديو اختياري</label><input name='media' type='file' accept='image/*,video/*'><button>إضافة للجدول</button></form></section>
 <section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مختلفة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم للقناتين</button></p></form></section>
+<section class='card'><h2>خطة Cretaiveplus المكثفة</h2><p class='muted'>توقف FOOX مؤقتًا وتضع 122 منشورًا مختلفًا في Cretaiveplus من الآن حتى 10 مساءً. الفاصل يُحسب تلقائيًا حسب الوقت المتبقي، وقد يكون قصيرًا؛ تأكد من قواعد Telegram قبل التشغيل.</p><form method='post'><input type='hidden' name='action' value='bulk_122'><button>إيقاف FOOX وجدولة 122 لـ Cretaiveplus</button></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
 <section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
