@@ -126,9 +126,9 @@ DAILY_ENDINGS = [
 ]
 
 
-def unique_daily_text(channel_index, post_index, day, used):
+def unique_daily_text(channel_index, post_index, day, used, template_index=None):
     """Choose a never-before-used exact text, rotating both body and ending."""
-    bodies = POSTS[channel_index]
+    bodies = POSTS[channel_index if template_index is None else template_index]
     body_shift = (day.toordinal() + channel_index * 11) % len(bodies)
     ending_shift = (day.toordinal() // 7 + channel_index * 3) % len(DAILY_ENDINGS)
     for attempt in range(len(bodies) * len(DAILY_ENDINGS)):
@@ -143,6 +143,19 @@ def unique_daily_text(channel_index, post_index, day, used):
     candidate = f"{bodies[(post_index + body_shift) % len(bodies)]}\n\n{DAILY_ENDINGS[ending_shift]}\n\nتحديث {day.isoformat()} — منشور {post_index + 1}"
     used.add(candidate)
     return candidate
+
+
+# إصلاح أي خطة bulk معلّقة أُنشئت بالقوالب القديمة قبل تحديث WowBet.
+with app.app_context():
+    _bulk_channel = value("channel_1") or "@Cretaiveplus"
+    _bulk_rows = (Job.query.filter(Job.channel == _bulk_channel, Job.source == "bulk-122", Job.status == "pending")
+                  .order_by(Job.due_at).all())
+    if _bulk_rows and any("SMA1" in (row.text or "") or "140" in (row.text or "") for row in _bulk_rows):
+        _used = {row.text for row in Job.query.filter(Job.channel == _bulk_channel, Job.id.notin_([item.id for item in _bulk_rows])).all()}
+        _day = datetime.now(CAIRO).date()
+        for _index, _row in enumerate(_bulk_rows):
+            _row.text = unique_daily_text(1, _index, _day, _used, template_index=3)
+        db.session.commit()
 
 
 def require_login(view):
@@ -234,7 +247,7 @@ def dashboard():
                     # امنع التكرار النصي مع أي منشور سابق لنفس القناة.
                     used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
                     for pi in range(8):
-                        text = unique_daily_text(ci, pi, date, used)
+                        text = unique_daily_text(ci, pi, date, used, template_index=(0 if ci == 0 else 3))
                         if contact: text += "\n\n" + contact
                         # بوست جديد كل ساعة؛ فرق 5 دقائق فقط بين القنوات.
                         due = (base + timedelta(minutes=pi * 70 + ci * 5)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
@@ -258,7 +271,7 @@ def dashboard():
                 used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
                 span_seconds = max(60, int((finish - now).total_seconds()))
                 for index in range(122):
-                    text = unique_daily_text(1, index, now.date(), used)
+                    text = unique_daily_text(1, index, now.date(), used, template_index=3)
                     due = now + timedelta(seconds=(span_seconds * index / 121 if index else 0))
                     db.session.add(Job(channel=channel, text=text, due_at=due.astimezone(ZoneInfo("UTC")).replace(tzinfo=None), source="bulk-122"))
                 db.session.commit()
