@@ -322,6 +322,23 @@ def dashboard():
                 job.text, job.due_at = new_text, new_time
                 db.session.commit(); flash("تم تعديل المنشور.", "ok")
             except Exception as exc: db.session.rollback(); flash(str(exc), "error")
+        elif action == "metrics":
+            try:
+                job = db.session.get(Job, int(request.form["job_id"]))
+                if not job or job.status != "sent":
+                    raise ValueError("لا يمكن تسجيل الإحصاءات قبل إرسال المنشور.")
+                values = {}
+                for field in ("views", "reactions", "comments", "link_clicks"):
+                    raw = request.form.get(field, "").strip()
+                    if raw:
+                        number = int(raw)
+                        if number < 0:
+                            raise ValueError("الإحصاءات لا يمكن أن تكون سالبة.")
+                        values[field] = number
+                for field, number in values.items():
+                    setattr(job, field, number)
+                db.session.commit(); flash("تم حفظ إحصاءات المنشور.", "ok")
+            except Exception as exc: db.session.rollback(); flash(str(exc), "error")
         return redirect(url_for("dashboard"))
     jobs = Job.query.order_by(Job.due_at.desc()).limit(80).all()
     sent_links = (Job.query.filter(Job.telegram_link.isnot(None))
@@ -356,7 +373,7 @@ DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>�
 <section class='card'><h2>خطة Cretaiveplus المكثفة</h2><p class='muted'>توقف FOOX مؤقتًا وتضع 122 منشورًا مختلفًا في Cretaiveplus من الآن حتى 8 صباحًا. الفاصل يُحسب تلقائيًا حسب الوقت المتبقي، وقد يكون قصيرًا؛ تأكد من قواعد Telegram قبل التشغيل.</p><form method='post'><input type='hidden' name='action' value='bulk_122'><button>إيقاف FOOX وجدولة 122 لـ Cretaiveplus</button></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
 <section class='card'><h2>روابط المنشورات المرسلة</h2><p class='muted'>يتم حفظ الرابط تلقائيًا بعد نجاح الإرسال. العدد الحالي: {{sent_links|length}} رابطًا.</p><textarea readonly style='min-height:180px'>{% for item in sent_links %}{{item.telegram_link}}{% if not loop.last %}\n{% endif %}{% endfor %}</textarea></section>
-<section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.telegram_link %}<br><a href='{{job.telegram_link}}' target='_blank' style='color:#8fc7ff'>فتح رابط المنشور</a>{% endif %}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
+<section class='card'><h2>الجدول والسجل</h2><p class='muted'>الإحصاءات تُدخل من أرقام القناة الفعلية؛ لا يتم اختلاقها أو شراؤها.</p><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إحصاءات</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.telegram_link %}<br><a href='{{job.telegram_link}}' target='_blank' style='color:#8fc7ff'>فتح رابط المنشور</a>{% endif %}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='sent' %}<details><summary>{{job.views if job.views is not none else 'إضافة'}}</summary><form method='post'><input type='hidden' name='action' value='metrics'><input type='hidden' name='job_id' value='{{job.id}}'><input name='views' type='number' min='0' placeholder='المشاهدات' value='{{job.views if job.views is not none else ""}}'><input name='reactions' type='number' min='0' placeholder='التفاعلات' value='{{job.reactions if job.reactions is not none else ""}}'><input name='comments' type='number' min='0' placeholder='التعليقات' value='{{job.comments if job.comments is not none else ""}}'><input name='link_clicks' type='number' min='0' placeholder='النقرات' value='{{job.link_clicks if job.link_clicks is not none else ""}}'><button>حفظ الإحصاءات</button></form></details>{% else %}—{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
 
 if __name__ == "__main__":

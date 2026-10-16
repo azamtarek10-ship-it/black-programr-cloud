@@ -23,6 +23,11 @@ class Job(db.Model):
     sent_at = db.Column(db.DateTime, nullable=True)
     source = db.Column(db.String(32), nullable=False, default="manual")
     telegram_link = db.Column(db.Text, nullable=True)
+    # اختيارات تحليلية يدوّنها المدير من إحصاءات القناة؛ لا ندّعي قراءتها تلقائيًا من Telegram.
+    views = db.Column(db.Integer, nullable=True)
+    reactions = db.Column(db.Integer, nullable=True)
+    comments = db.Column(db.Integer, nullable=True)
+    link_clicks = db.Column(db.Integer, nullable=True)
     media = db.relationship("Media", backref="job", uselist=False, cascade="all, delete-orphan")
 
 
@@ -46,10 +51,24 @@ def configure(app):
     db.init_app(app)
     with app.app_context():
         db.create_all()
-        # إضافة العمود للتثبيتات القديمة بدون حذف أي بيانات.
-        if database_url.startswith("postgresql+"):
-            db.session.execute(text("ALTER TABLE job ADD COLUMN IF NOT EXISTS telegram_link TEXT"))
-            db.session.commit()
+        # إضافة الأعمدة للتثبيتات القديمة بدون حذف أي بيانات.
+        columns = {
+            "telegram_link": "TEXT",
+            "views": "INTEGER",
+            "reactions": "INTEGER",
+            "comments": "INTEGER",
+            "link_clicks": "INTEGER",
+        }
+        for name, type_name in columns.items():
+            try:
+                if database_url.startswith("postgresql+"):
+                    db.session.execute(text(f"ALTER TABLE job ADD COLUMN IF NOT EXISTS {name} {type_name}"))
+                else:
+                    db.session.execute(text(f"ALTER TABLE job ADD COLUMN {name} {type_name}"))
+                db.session.commit()
+            except Exception:
+                # العمود موجود بالفعل في SQLite أو PostgreSQL.
+                db.session.rollback()
 
 
 def value(key, fallback=""):
