@@ -20,7 +20,7 @@ configure(app)
 # إعدادات القنوات الافتراضية تُحفظ في قاعدة البيانات أول مرة فقط.
 DEFAULTS = {
     "channel_0": "@FOOX_HUUB", "contact_0": "@EAr_ay",
-    "channel_1": "", "contact_1": "",
+    "channel_1": "@Cretaiveplus", "contact_1": "",
     "channel_2": "", "contact_2": "",
 }
 with app.app_context():
@@ -28,8 +28,6 @@ with app.app_context():
         if not value(_key):
             set_value(_key, _default)
     db.session.commit()
-    # FOOX HUB هي القناة الوحيدة المعتمدة الآن؛ أوقف أي منشورات معلّقة للقنوات القديمة.
-    db.session.query(Job).filter(Job.status == "pending", Job.channel != DEFAULTS["channel_0"]).update({"status": "cancelled"}, synchronize_session=False)
     db.session.commit()
 
 
@@ -101,6 +99,16 @@ POSTS = [
         "صباحكم هادي 🌟\nلو فاتح صفحة التسجيل، جهّز SMA1 وخد وقتك في قراءة الشروط.\nابدأ من 140 أو المبلغ اللي يناسبك.",
         "أول خطوة مش محتاجة توتر.\nاكتب SMA1، راجع كل خانة، وبعدها قرر بهدوء.\nالحد الأدنى للإيداع 140.",
         "قبل نهاية التسجيل، اعمل مراجعة صغيرة ✅\nالبروموكود SMA1 موجود، والشروط قدامك، والبداية من 140. كمل فقط وأنت فاهم الخطوة.",
+    ],
+    [
+        "لو هتجرب WowBet، اكتب البروموكود MSA1 أثناء التسجيل.\nبعدها راجع البيانات والشروط، ولو تم الإيداع ابعت صورة تسجيل وصورة إيداع بدون أي معلومات حساسة.",
+        "خطوات WowBet بسيطة وواضحة:\nسجّل بالبروموكود MSA1، والحد الأدنى للإيداع 145 جنيه، ثم احتفظ بإثبات التسجيل والإيداع بعد إخفاء البيانات الخاصة.",
+        "قبل ما تكمل على WowBet، تأكد إن MSA1 ظاهر في صفحة التسجيل.\nبعد الإيداع، أرسل لقطتين منفصلتين: التسجيل والإيداع، مع تغطية الأرقام والبيانات الحساسة.",
+        "رسالة سريعة للي داخل جديد 👋\nWowBet + البروموكود MSA1، والبداية من 145 جنيه. اقرأ الشروط بهدوء وخد قرارك بالمبلغ المناسب لك.",
+        "اختار وقتك وخدها خطوة خطوة:\nافتح حساب WowBet، أضف MSA1، راجع التفاصيل، ثم أكمل بإيداع يبدأ من 145 جنيه إذا كان مناسبًا لك.",
+        "لو التسجيل خلص، راجع إن البروموكود هو MSA1 قبل أي إيداع.\nوعند إرسال الإثبات، خلي صورة التسجيل وصورة الإيداع واضحتين ومن غير بيانات شخصية.",
+        "المختصر المفيد لـ WowBet:\nMSA1 في خانة البروموكود، والحد الأدنى 145 جنيه، والشروط قدامك قبل أي خطوة. اسأل لو في خانة مش واضحة.",
+        "نظّم خطواتك من البداية ✅\nسجّل على WowBet باستخدام MSA1، اقرأ شروط الإيداع والسحب، وبعدها ابعت إثبات التسجيل والإيداع بعد إخفاء أي معلومات حساسة.",
     ],
 ]
 
@@ -182,7 +190,7 @@ def dashboard():
     if request.method == "POST":
         action = request.form.get("action")
         if action == "settings":
-            for index in range(1):
+            for index in range(2):
                 set_value(f"channel_{index}", request.form.get(f"channel_{index}", "").strip())
                 set_value(f"contact_{index}", request.form.get(f"contact_{index}", "").strip())
                 set_value(f"paused_{request.form.get(f'channel_{index}', '').strip()}", "1" if request.form.get(f"paused_{index}") else "0")
@@ -217,7 +225,7 @@ def dashboard():
                 # حتى لا تختلط القوالب القديمة بالجديدة.
                 Job.query.filter(Job.due_at >= start, Job.due_at < end, Job.status == "pending").delete(synchronize_session=False)
                 made = 0
-                for ci in range(1):
+                for ci in range(2):
                     channel = value(f"channel_{ci}")
                     contact = value(f"contact_{ci}")
                     if not channel: continue
@@ -249,7 +257,7 @@ def dashboard():
         return redirect(url_for("dashboard"))
     jobs = Job.query.order_by(Job.due_at.desc()).limit(80).all()
     stats = {status: Job.query.filter(Job.status == status).count() for status in ("pending", "sent", "failed")}
-    channels = [(value("channel_0"), value("contact_0"))]
+    channels = [(value(f"channel_{index}"), value(f"contact_{index}")) for index in range(2) if value(f"channel_{index}")]
     channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
     inner = render_template_string(
         DASHBOARD,
@@ -271,9 +279,9 @@ BASE = """<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><
 DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>جدولة تليجرام السحابية — توقيت القاهرة</div></div><div><span class='tag'>{{ 'البوت جاهز' if token_ready else 'أضف توكن البوت في Railway' }}</span> · <a href='/logout' style='color:#ddd'>خروج</a></div></div>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class='flash {{category}}'>{{msg}}</div>{% endfor %}{% endwith %}
 <section class='card'><h2>ملخص سريع</h2><div class='stats'><span>معلّق: {{stats['pending']}}</span><span>تم إرساله: {{stats['sent']}}</span><span>فشل: {{stats['failed']}}</span></div></section>
-<section class='card'><h2>إعدادات FOOX HUB</h2><p class='muted'>القناة الوحيدة المفعّلة حاليًا. القنوات القديمة أُوقفت ولن تستقبل منشورات جديدة.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>القناة</label><input name='channel_0' value='{{channels[0][0]}}' placeholder='@FOOX_HUUB'><label>يوزر التواصل</label><input name='contact_0' value='{{channels[0][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_0' {% if channel_paused[0] %}checked{% endif %}> إيقاف النشر مؤقتًا</label></div><p><button>حفظ إعدادات FOOX</button></p></form></section>
+<section class='card'><h2>إعدادات القنوات</h2><p class='muted'>FOOX وCretaiveplus يعملان بشكل مستقل. اترك يوزر التواصل فارغًا إذا لم ترد إضافته أسفل المنشور.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>FOOX HUB</label><input name='channel_0' value='{{channels[0][0] if channels|length > 0 else "@FOOX_HUUB"}}' placeholder='@FOOX_HUUB'><label>يوزر التواصل في FOOX</label><input name='contact_0' value='{{channels[0][1] if channels|length > 0 else ""}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_0' {% if channel_paused[0] %}checked{% endif %}> إيقاف FOOX مؤقتًا</label><label>القناة الجديدة</label><input name='channel_1' value='{{channels[1][0] if channels|length > 1 else "@Cretaiveplus"}}' placeholder='@Cretaiveplus'><label>يوزر التواصل في Cretaiveplus</label><input name='contact_1' value='{{channels[1][1] if channels|length > 1 else ""}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_1' {% if channel_paused|length > 1 and channel_paused[1] %}checked{% endif %}> إيقاف Cretaiveplus مؤقتًا</label></div><p><button>حفظ إعدادات القنوات</button></p></form></section>
 <div class='grid'><section class='card'><h2>إضافة منشور يدوي</h2><form method='post' enctype='multipart/form-data'><input type='hidden' name='action' value='manual'><label>القناة</label><select name='channel'>{% for channel,contact in channels %}<option value='{{channel}}'>{{channel}}</option>{% endfor %}</select><label>الموعد</label><input name='due_at' type='datetime-local' required><label>النص</label><textarea name='text' required></textarea><label>صورة أو فيديو اختياري</label><input name='media' type='file' accept='image/*,video/*'><button>إضافة للجدول</button></form></section>
-<section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مستقلة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم</button></p></form></section>
+<section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مختلفة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم للقناتين</button></p></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
 <section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
