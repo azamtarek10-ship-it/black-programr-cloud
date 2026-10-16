@@ -1,4 +1,5 @@
 import time
+import re
 from datetime import datetime, timedelta
 
 import requests
@@ -8,6 +9,31 @@ from app_common import Job, configure, db, get_token, value
 
 app = Flask(__name__)
 configure(app)
+
+
+def remove_technical_footer(text):
+    return re.sub(r"\n\nتحديث \d{4}-\d{2}-\d{2} — منشور \d+\s*$", "", text or "")
+
+
+def telegram_cleanup_saved(token):
+    """Edit already-sent text posts whose saved copy still has the old footer."""
+    rows = Job.query.filter(Job.status == "sent", Job.telegram_link.isnot(None)).all()
+    for job in rows:
+        cleaned = remove_technical_footer(job.text)
+        if cleaned == job.text:
+            continue
+        match = re.search(r"t\.me/([^/]+)/([0-9]+)", job.telegram_link or "")
+        if not match:
+            continue
+        response = requests.post(
+            f"https://api.telegram.org/bot{token}/editMessageText",
+            json={"chat_id": f"@{match.group(1)}", "message_id": int(match.group(2)), "text": cleaned},
+            timeout=30,
+        )
+        data = response.json()
+        if response.ok and data.get("ok"):
+            job.text = cleaned
+    db.session.commit()
 
 
 def telegram_send(token, job):
@@ -27,6 +53,7 @@ def run_once():
     token = get_token()
     if not token:
         return
+    telegram_cleanup_saved(token)
     now = datetime.utcnow()
     # يرسل المواعيد التي فاتت خلال ساعتين فقط، ولا يعيد نشر القديم جدًا.
     jobs = (Job.query.filter(Job.status == "pending", Job.due_at <= now,
