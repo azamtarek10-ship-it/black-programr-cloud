@@ -2,13 +2,16 @@ import os
 import secrets
 import threading
 import time
+from difflib import SequenceMatcher
+from io import BytesIO
+import json
 from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
 
 import requests
 
-from flask import Flask, flash, redirect, render_template_string, request, session, url_for
+from flask import Flask, flash, redirect, render_template_string, request, session, url_for, Response
 
 from app_common import Job, Media, configure, db, get_token, set_value, value
 
@@ -171,6 +174,19 @@ def add_contact_line(text, contact):
     return f"{text}\n\nللتواصل: {contact}" if contact else text
 
 
+def similar_existing(channel, text, exclude_id=None):
+    """Reject near-duplicate copy, not only exact matches."""
+    rows = Job.query.filter(Job.channel == channel).all()
+    normalized = " ".join((text or "").split()).lower()
+    for row in rows:
+        if exclude_id and row.id == exclude_id:
+            continue
+        other = " ".join((row.text or "").split()).lower()
+        if normalized and other and SequenceMatcher(None, normalized, other).ratio() >= 0.86:
+            return row
+    return None
+
+
 # إصلاح أي خطة bulk معلّقة أُنشئت بالقوالب القديمة قبل تحديث WowBet.
 with app.app_context():
     _bulk_channel = value("channel_1") or "@Cretaiveplus"
@@ -236,6 +252,16 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.route("/backup")
+@require_login
+def backup():
+    rows = Job.query.order_by(Job.due_at).all()
+    payload = [{"id": row.id, "channel": row.channel, "text": row.text, "due_at": row.due_at.isoformat(),
+                "status": row.status, "source": row.source, "telegram_link": row.telegram_link} for row in rows]
+    return Response(json.dumps(payload, ensure_ascii=False, indent=2), mimetype="application/json",
+                    headers={"Content-Disposition": "attachment; filename=black-programr-backup.json"})
+
+
 @app.route("/", methods=["GET", "POST"])
 @require_login
 def dashboard():
@@ -257,6 +283,7 @@ def dashboard():
                 if due <= datetime.utcnow(): raise ValueError("اختار موعدًا في المستقبل.")
                 channel = request.form["channel"].strip(); text = request.form["text"].strip()
                 if not channel or not text: raise ValueError("اكتب القناة ونص المنشور.")
+                if similar_existing(channel, text): raise ValueError("النص مشابه جدًا لمنشور سابق لنفس القناة؛ غيّر الصياغة.")
                 job = Job(channel=channel, text=text, due_at=due)
                 upload = request.files.get("media")
                 if upload and upload.filename:
@@ -329,11 +356,16 @@ def dashboard():
                 new_text = request.form.get("text", "").strip()
                 new_time = to_utc(request.form["due_at"])
                 if not new_text or new_time <= datetime.utcnow(): raise ValueError("اكتب نصًا وموعدًا مستقبليًا.")
-                duplicate = Job.query.filter(Job.channel == job.channel, Job.text == new_text, Job.id != job.id).first()
-                if duplicate: raise ValueError("هذا النص مستخدم بالفعل لنفس القناة.")
+                duplicate = similar_existing(job.channel, new_text, exclude_id=job.id)
+                if duplicate: raise ValueError("النص مشابه جدًا لمنشور سابق لنفس القناة؛ غيّر الصياغة.")
                 job.text, job.due_at = new_text, new_time
                 db.session.commit(); flash("تم تعديل المنشور.", "ok")
             except Exception as exc: db.session.rollback(); flash(str(exc), "error")
+        elif action == "retry":
+            job = db.session.get(Job, int(request.form["job_id"]))
+            if job and job.status == "failed":
+                job.status, job.error, job.due_at = "pending", None, datetime.utcnow() + timedelta(minutes=5)
+                db.session.commit(); flash("تمت إعادة المحاولة بعد 5 دقائق.", "ok")
         elif action == "metrics":
             try:
                 job = db.session.get(Job, int(request.form["job_id"]))
@@ -394,7 +426,7 @@ DASHBOARD = """<div class='top'><div style='display:flex;align-items:center;just
 <section class='card'><h2>الجدول والسجل</h2><p class='muted'>الإحصاءات تُدخل من أرقام القناة الفعلية؛ لا يتم اختلاقها أو شراؤها.</p><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إحصاءات</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.telegram_link %}<br><a href='{{job.telegram_link}}' target='_blank' style='color:#8fc7ff'>فتح رابط المنشور</a>{% endif %}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='sent' %}<details><summary>{{job.views if job.views is not none else 'إضافة'}}</summary><form method='post'><input type='hidden' name='action' value='metrics'><input type='hidden' name='job_id' value='{{job.id}}'><input name='views' type='number' min='0' placeholder='المشاهدات' value='{{job.views if job.views is not none else ""}}'><input name='reactions' type='number' min='0' placeholder='التفاعلات' value='{{job.reactions if job.reactions is not none else ""}}'><input name='comments' type='number' min='0' placeholder='التعليقات' value='{{job.comments if job.comments is not none else ""}}'><input name='link_clicks' type='number' min='0' placeholder='النقرات' value='{{job.link_clicks if job.link_clicks is not none else ""}}'><button>حفظ الإحصاءات</button></form></details>{% else %}—{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
 
-CHANNEL_ADDON = """<section class='card' style='margin-top:18px'><h2>إضافة قناة إضافية</h2><p class='muted'>اكتب يوزر القناة بصيغة @channel ثم اضغط حفظ. ستظهر القناة فورًا في قائمة المنشور وخطة اليوم.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>يوزر القناة</label><input name='channel_2' value='{{channel_values[2][0]}}' placeholder='@channel'><label>يوزر التواصل</label><input name='contact_2' value='{{channel_values[2][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_2' {% if channel_paused|length > 2 and channel_paused[2] %}checked{% endif %}> إيقاف القناة مؤقتًا</label></div><p><button>حفظ القناة</button></p></form></section>"""
+CHANNEL_ADDON = """<section class='card' style='margin-top:18px'><h2>إضافة قناة إضافية</h2><p class='muted'>اكتب يوزر القناة بصيغة @channel ثم اضغط حفظ. ستظهر القناة فورًا في قائمة المنشور وخطة اليوم.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>يوزر القناة</label><input name='channel_2' value='{{channel_values[2][0]}}' placeholder='@channel'><label>يوزر التواصل</label><input name='contact_2' value='{{channel_values[2][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_2' {% if channel_paused|length > 2 and channel_paused[2] %}checked{% endif %}> إيقاف القناة مؤقتًا</label></div><p><button>حفظ القناة</button> <a href='/backup'>تنزيل نسخة احتياطية</a></p></form></section>"""
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
