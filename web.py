@@ -27,6 +27,8 @@ with app.app_context():
     for _key, _default in DEFAULTS.items():
         if not value(_key):
             set_value(_key, _default)
+    if value("contact_1") in ("", "@EAr_ay"):
+        set_value("contact_1", "@Creatiiveplus")
     # FOOX متوقف مؤقتًا بناءً على طلب صاحب المشروع.
     set_value("paused_@FOOX_HUUB", "1")
     db.session.commit()
@@ -164,6 +166,17 @@ with app.app_context():
         for _index, _row in enumerate(_bulk_rows):
             _row.text = add_contact_line(unique_daily_text(1, _index, _day, _used, template_index=3), value("contact_1"))
         db.session.commit()
+    _new_contact = value("contact_1")
+    if _new_contact:
+        _pending_new_channel = Job.query.filter(Job.channel == _bulk_channel, Job.status == "pending").all()
+        _changed = False
+        for _row in _pending_new_channel:
+            if "للتواصل:" in (_row.text or ""):
+                _row.text = _row.text.rsplit("\n\nللتواصل:", 1)[0]
+            _row.text = add_contact_line(_row.text, _new_contact) if "add_contact_line" in globals() else f"{_row.text}\n\nللتواصل: {_new_contact}"
+            _changed = True
+        if _changed:
+            db.session.commit()
 
 
 def require_login(view):
