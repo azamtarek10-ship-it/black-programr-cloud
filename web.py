@@ -316,6 +316,8 @@ def dashboard():
             except Exception as exc: db.session.rollback(); flash(str(exc), "error")
         return redirect(url_for("dashboard"))
     jobs = Job.query.order_by(Job.due_at.desc()).limit(80).all()
+    sent_links = (Job.query.filter(Job.telegram_link.isnot(None))
+                  .order_by(Job.sent_at.asc()).all())
     stats = {status: Job.query.filter(Job.status == status).count() for status in ("pending", "sent", "failed")}
     channels = [(value(f"channel_{index}"), value(f"contact_{index}")) for index in range(2) if value(f"channel_{index}")]
     channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
@@ -328,6 +330,7 @@ def dashboard():
         token_ready=bool(get_token()),
         stats=stats,
         channel_paused=channel_paused,
+        sent_links=sent_links,
     )
     return render_template_string(BASE, body=inner)
 
@@ -344,6 +347,7 @@ DASHBOARD = """<div class='top'><div><h1>BLACK PROGRAMR</h1><div class='muted'>�
 <section class='card'><h2>خطة اليوم</h2><p class='muted'>8 بوستات مختلفة لكل قناة، بفاصل ساعة و10 دقائق، من وقتك الحالي اليوم أو 12:00 ظهرًا في اليوم القادم.</p><form method='post'><input type='hidden' name='action' value='daily'><label>التاريخ</label><input type='date' name='day' value='{{today}}' required><p><button>إنشاء خطة اليوم للقناتين</button></p></form></section>
 <section class='card'><h2>خطة Cretaiveplus المكثفة</h2><p class='muted'>توقف FOOX مؤقتًا وتضع 122 منشورًا مختلفًا في Cretaiveplus من الآن حتى 10 مساءً. الفاصل يُحسب تلقائيًا حسب الوقت المتبقي، وقد يكون قصيرًا؛ تأكد من قواعد Telegram قبل التشغيل.</p><form method='post'><input type='hidden' name='action' value='bulk_122'><button>إيقاف FOOX وجدولة 122 لـ Cretaiveplus</button></form></section>
 <section class='card'><h2>تشغيل دائم</h2><p class='muted'>خدمة Worker هي التي ترسل، فلا يلزم فتح اللابتوب. لا تضع التوكن في GitHub؛ أضفه كمتغير سري في Railway فقط.</p></section></div>
+<section class='card'><h2>روابط المنشورات المرسلة</h2><p class='muted'>يتم حفظ الرابط تلقائيًا بعد نجاح الإرسال. العدد الحالي: {{sent_links|length}} رابطًا.</p><textarea readonly style='min-height:180px'>{% for item in sent_links %}{{item.telegram_link}}{% if not loop.last %}\n{% endif %}{% endfor %}</textarea></section>
 <section class='card'><h2>الجدول والسجل</h2><table><tr><th>موعد القاهرة</th><th>القناة</th><th>المنشور</th><th>الحالة</th><th>إجراء</th></tr>{% for job in jobs %}<tr><td>{{cairo_text(job.due_at)}}</td><td>{{job.channel}}</td><td style='white-space:pre-line'>{{job.text}}</td><td class='{{job.status}}'>{{job.status}}{% if job.telegram_link %}<br><a href='{{job.telegram_link}}' target='_blank' style='color:#8fc7ff'>فتح رابط المنشور</a>{% endif %}{% if job.error %}<br>{{job.error}}{% endif %}</td><td>{% if job.status=='pending' %}<details><summary>تعديل</summary><form method='post'><input type='hidden' name='action' value='edit'><input type='hidden' name='job_id' value='{{job.id}}'><textarea name='text' required>{{job.text}}</textarea><input name='due_at' type='datetime-local' required><button>حفظ التعديل</button></form></details><form method='post'><input type='hidden' name='action' value='delete'><input type='hidden' name='job_id' value='{{job.id}}'><button class='danger'>حذف</button></form>{% endif %}</td></tr>{% endfor %}</table></section>"""
 
 
