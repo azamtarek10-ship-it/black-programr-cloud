@@ -37,14 +37,17 @@ class Media(db.Model):
 def configure(app):
     database_url = os.environ.get("DATABASE_URL", "sqlite:///black_programr.db")
     if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
+        database_url = database_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif database_url.startswith("postgresql://"):
+        # Railway's URL has no driver suffix; use the psycopg2 package bundled in requirements.
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     db.init_app(app)
     with app.app_context():
         db.create_all()
         # إضافة العمود للتثبيتات القديمة بدون حذف أي بيانات.
-        if database_url.startswith("postgresql://"):
+        if database_url.startswith("postgresql+"):
             db.session.execute(text("ALTER TABLE job ADD COLUMN IF NOT EXISTS telegram_link TEXT"))
             db.session.commit()
 
