@@ -46,11 +46,23 @@ def _send_due_jobs():
                 token = get_token()
                 now = datetime.utcnow()
                 if token:
-                    jobs = (Job.query.filter(Job.status == "pending", Job.due_at <= now,
-                                             Job.due_at >= now - timedelta(hours=2))
+                    Job.query.filter(Job.status == "sending", Job.created_at <= now - timedelta(minutes=10)).update(
+                        {"status": "pending"}, synchronize_session=False
+                    )
+                    db.session.commit()
+                    # استئناف كل المنشورات المعلقة بعد التوقف، بدون حد زمني.
+                    jobs = (Job.query.filter(Job.status == "pending", Job.due_at <= now)
                             .order_by(Job.due_at).limit(20).all())
                     for job in jobs:
+                        claimed = Job.query.filter(Job.id == job.id, Job.status == "pending").update(
+                            {"status": "sending"}, synchronize_session=False
+                        )
+                        db.session.commit()
+                        if not claimed:
+                            continue
                         if value(f"paused_{job.channel}", "0") == "1":
+                            job.status = "pending"
+                            db.session.commit()
                             continue
                         try:
                             method = "sendVideo" if job.media and job.media.mime.startswith("video/") else ("sendPhoto" if job.media else "sendMessage")

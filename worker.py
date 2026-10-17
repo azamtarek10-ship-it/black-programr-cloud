@@ -55,12 +55,24 @@ def run_once():
         return
     telegram_cleanup_saved(token)
     now = datetime.utcnow()
-    # يرسل المواعيد التي فاتت خلال ساعتين فقط، ولا يعيد نشر القديم جدًا.
-    jobs = (Job.query.filter(Job.status == "pending", Job.due_at <= now,
-                             Job.due_at >= now - timedelta(hours=2))
+    # Recover a job if a process died after claiming it.
+    Job.query.filter(Job.status == "sending", Job.created_at <= now - timedelta(minutes=10)).update(
+        {"status": "pending"}, synchronize_session=False
+    )
+    db.session.commit()
+    # بعد أي توقف، استأنف كل المنشورات المعلقة حتى لو فات موعدها منذ أيام.
+    jobs = (Job.query.filter(Job.status == "pending", Job.due_at <= now)
             .order_by(Job.due_at).limit(20).all())
     for job in jobs:
+        claimed = Job.query.filter(Job.id == job.id, Job.status == "pending").update(
+            {"status": "sending"}, synchronize_session=False
+        )
+        db.session.commit()
+        if not claimed:
+            continue
         if value(f"paused_{job.channel}", "0") == "1":
+            job.status = "pending"
+            db.session.commit()
             continue
         try:
             telegram_send(token, job)
