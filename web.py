@@ -160,9 +160,25 @@ DAILY_PREFIXES = [
     "نقطة مهمة: ", "للتوضيح: ", "خد بالك: ", "بهدوء: ",
 ]
 
+DAILY_LEADS = [
+    "خلينا نبدأها من الأول.",
+    "لو دي أول مرة، اقرأ السطور دي بهدوء.",
+    "المهم هنا إنك تمشي بالترتيب.",
+    "عندك دقيقة؟ خد الخلاصة.",
+    "قبل أي خطوة، راجع النقاط دي.",
+    "بشكل مباشر ومن غير لف: ",
+]
+
+DAILY_CLOSERS = [
+    "وخد قرارك بعد ما تكون فاهم التفاصيل.",
+    "ما تستعجلش، كل خطوة لها وقتها.",
+    "ولو وقفت معاك نقطة، اكتبها ونوضحها.",
+    "احتفظ بالمعلومة وارجع لها وقت الحاجة.",
+]
+
 
 def unique_daily_text(channel_index, post_index, day, used, template_index=None):
-    """Choose a never-before-used exact text, rotating both body and ending."""
+    """Build varied layouts and reject both exact and near-duplicate copy."""
     bodies = POSTS[channel_index if template_index is None else template_index]
     body_shift = (day.toordinal() + channel_index * 11) % len(bodies)
     ending_shift = (day.toordinal() // 7 + channel_index * 3) % len(DAILY_ENDINGS)
@@ -171,16 +187,25 @@ def unique_daily_text(channel_index, post_index, day, used, template_index=None)
         body = bodies[(post_index + body_shift + attempt) % len(bodies)]
         ending = DAILY_ENDINGS[(post_index + ending_shift + attempt // len(bodies)) % len(DAILY_ENDINGS)]
         prefix = DAILY_PREFIXES[(post_index + attempt // (len(bodies) * len(DAILY_ENDINGS))) % len(DAILY_PREFIXES)]
-        # Rotate short, medium, and long forms so consecutive posts do not
-        # have the same rhythm or visual length.
-        length_mode = (post_index + attempt + channel_index) % 3
-        if length_mode == 0:
+        lead = DAILY_LEADS[(post_index * 3 + attempt + channel_index) % len(DAILY_LEADS)]
+        closer = DAILY_CLOSERS[(post_index + attempt // 2 + channel_index) % len(DAILY_CLOSERS)]
+        layout = (post_index + attempt + channel_index) % 6
+        if layout == 0:
             candidate = f"{prefix}{body}"
-        elif length_mode == 1:
+        elif layout == 1:
+            candidate = f"{lead}\n\n{body}"
+        elif layout == 2:
             candidate = f"{prefix}{body}\n\n{ending}"
+        elif layout == 3:
+            candidate = f"{body}\n\n{closer}"
+        elif layout == 4:
+            candidate = f"{lead}\n\n{prefix}{body}\n\n{ending}"
         else:
-            candidate = f"{prefix}{body}\n\n{ending}\n\nخد وقتك واقرأ التفاصيل كاملة قبل أي خطوة."
-        if candidate not in used:
+            compact = body.replace("\n", " — ")
+            candidate = f"{prefix}{compact}\n\n{closer}"
+        normalized = " ".join(candidate.split()).lower()
+        near_match = any(SequenceMatcher(None, normalized, " ".join(old.split()).lower()).ratio() >= 0.84 for old in used)
+        if candidate not in used and not near_match:
             used.add(candidate)
             return candidate
     # احتياطي نادر جدًا: لا نضيف أي رقم أو تاريخ داخل المنشور.
