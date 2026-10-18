@@ -5,6 +5,7 @@ import time
 from difflib import SequenceMatcher
 from io import BytesIO
 import json
+import re
 from datetime import datetime, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo
@@ -42,6 +43,29 @@ with app.app_context():
             synchronize_session=False,
         )
         set_value("cancel_pending_once", "done")
+    # One-time cleanup requested by the owner: delete old Telegram messages
+    # that have a saved link, while retaining their local history.
+    if value("delete_sent_once") != "done":
+        _delete_token = get_token()
+        if _delete_token:
+            for _row in Job.query.filter(Job.status == "sent", Job.telegram_link.isnot(None)).all():
+                _match = re.search(r"t\.me/([^/]+)/([0-9]+)", _row.telegram_link or "")
+                if not _match:
+                    continue
+                try:
+                    _response = requests.post(
+                        f"https://api.telegram.org/bot{_delete_token}/deleteMessage",
+                        json={"chat_id": f"@{_match.group(1)}", "message_id": int(_match.group(2))},
+                        timeout=30,
+                    )
+                    _data = _response.json()
+                    _description = str(_data.get("description", "")).lower()
+                    if (_response.ok and _data.get("ok")) or "not found" in _description or "message to delete" in _description:
+                        _row.status = "deleted"
+                        _row.error = "تم حذف المنشور القديم من تيليجرام بناءً على طلب صاحب المشروع."
+                except Exception:
+                    continue
+            set_value("delete_sent_once", "done")
     db.session.commit()
     db.session.commit()
 
