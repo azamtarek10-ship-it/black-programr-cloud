@@ -358,6 +358,25 @@ def dashboard():
                 interval = span_seconds / 121 / 60
                 flash(f"تم إيقاف FOOX وجدولة 122 منشورًا لـ {channel} حتى 8 صباحًا (فاصل تقريبي {interval:.1f} دقيقة).", "ok")
             except Exception as exc: db.session.rollback(); flash(str(exc), "error")
+        elif action == "bulk_90":
+            try:
+                channel = value("channel_1") or "@Cretaiveplus"
+                contact = value("contact_1")
+                if not channel: raise ValueError("أضف القناة أولًا.")
+                now = cairo_now().replace(second=0, microsecond=0)
+                finish_local = datetime.combine(now.date() + timedelta(days=1), datetime.min.time()).replace(tzinfo=CAIRO) + timedelta(hours=11)
+                if finish_local <= now.replace(tzinfo=CAIRO):
+                    raise ValueError("موعد النهاية مرّ بالفعل؛ شغّل الخطة قبل 11 صباحًا.")
+                used = {row.text for row in Job.query.filter(Job.channel == channel).all()}
+                span_seconds = int((finish_local - now.replace(tzinfo=CAIRO)).total_seconds())
+                for index in range(90):
+                    text = add_contact_line(unique_daily_text(1, index, now.date(), used, template_index=3), contact)
+                    due = now.replace(tzinfo=CAIRO) + timedelta(seconds=(span_seconds * index / 89 if index else 0))
+                    db.session.add(Job(channel=channel, text=text, due_at=due.astimezone(ZoneInfo("UTC")).replace(tzinfo=None), source="bulk-90"))
+                db.session.commit()
+                interval = span_seconds / 89 / 60
+                flash(f"تمت جدولة 90 منشورًا مختلفًا لـ {channel} حتى غدًا 11:00 صباحًا، بفاصل تقريبي {interval:.1f} دقيقة. الروابط ستُحفظ بعد الإرسال.", "ok")
+            except Exception as exc: db.session.rollback(); flash(str(exc), "error")
         elif action == "delete":
             job = db.session.get(Job, int(request.form["job_id"]))
             if job and job.status == "pending": db.session.delete(job); db.session.commit(); flash("تم حذف المنشور.", "ok")
@@ -404,7 +423,7 @@ def dashboard():
     channels = [row for row in channel_values if row[0]]
     channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
     inner = render_template_string(
-        DASHBOARD.replace("<div class='grid'>", CHANNEL_ADDON + "<div class='grid'>", 1),
+        DASHBOARD.replace("<div class='grid'>", CHANNEL_ADDON + BULK90 + "<div class='grid'>", 1),
         jobs=jobs,
         channels=channels,
         channel_values=channel_values,
@@ -439,6 +458,8 @@ DASHBOARD = """<div class='top'><div style='display:flex;align-items:center;just
 
 
 CHANNEL_ADDON = """<section class='card' style='margin-top:18px'><h2>إضافة قناة إضافية</h2><p class='muted'>اكتب يوزر القناة بصيغة @channel ثم اضغط حفظ. ستظهر القناة فورًا في قائمة المنشور وخطة اليوم.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>يوزر القناة</label><input name='channel_2' value='{{channel_values[2][0]}}' placeholder='@channel'><label>يوزر التواصل</label><input name='contact_2' value='{{channel_values[2][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_2' {% if channel_paused|length > 2 and channel_paused[2] %}checked{% endif %}> إيقاف القناة مؤقتًا</label></div><p><button>حفظ القناة</button> <a href='/backup'>تنزيل نسخة احتياطية</a></p></form></section>"""
+
+BULK90 = """<section class='card' style='margin-top:18px'><h2>خطة 90 منشورًا حتى غدًا 11 صباحًا</h2><p class='muted'>توزيع تلقائي من الآن حتى غدًا 11:00 بتوقيت القاهرة. لا تُحذف الخطط القديمة تلقائيًا.</p><form method='post'><input type='hidden' name='action' value='bulk_90'><button>جدولة 90 منشورًا</button></form></section>"""
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
