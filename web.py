@@ -34,6 +34,14 @@ with app.app_context():
         set_value("contact_1", "@Creatiiveplus")
     # FOOX متوقف مؤقتًا بناءً على طلب صاحب المشروع.
     set_value("paused_@FOOX_HUUB", "1")
+    # One-time cleanup requested by the owner: stop every queued item while
+    # keeping already-sent history and links intact.
+    if value("cancel_pending_once") != "done":
+        Job.query.filter(Job.status.in_(("pending", "sending"))).update(
+            {"status": "cancelled", "error": "تم الإلغاء بناءً على طلب صاحب المشروع."},
+            synchronize_session=False,
+        )
+        set_value("cancel_pending_once", "done")
     db.session.commit()
     db.session.commit()
 
