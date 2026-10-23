@@ -1,4 +1,4 @@
-# BLACK PROGRAMR Cloud
+# BLACK FOX PROGRAMER Cloud
 
 لوحة خاصة لجدولة منشورات تليجرام لثلاث قنوات، مع عامل نشر يعمل باستمرار.
 
@@ -12,3 +12,4 @@
 أنشئ خدمتين من نفس المستودع في Railway: خدمة **Web** بالأمر `gunicorn --workers 1 --threads 4 --bind 0.0.0.0:$PORT web:app`، وخدمة **Worker** بالأمر `python worker.py`. أضف خدمة PostgreSQL واربط `DATABASE_URL` بالخدمتين.
 
 Deployment source: Railway production service.
+
