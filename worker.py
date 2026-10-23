@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import requests
 from flask import Flask
 
-from app_common import Job, configure, db, get_token, value
+from app_common import ChannelProfile, Job, configure, db, get_token, value
 
 app = Flask(__name__)
 configure(app)
@@ -70,7 +70,8 @@ def run_once():
         db.session.commit()
         if not claimed:
             continue
-        if value(f"paused_{job.channel}", "0") == "1":
+        profile = ChannelProfile.query.filter_by(channel=job.channel).first()
+        if value(f"paused_{job.channel}", "0") == "1" or (profile and (profile.paused or not profile.enabled)):
             job.status = "pending"
             db.session.commit()
             continue

@@ -12,6 +12,22 @@ class Setting(db.Model):
     value = db.Column(db.Text, nullable=False, default="")
 
 
+class ChannelProfile(db.Model):
+    """Independent publishing profile for each Telegram channel."""
+    id = db.Column(db.Integer, primary_key=True)
+    channel = db.Column(db.String(160), unique=True, nullable=False)
+    contact = db.Column(db.String(160), nullable=False, default="")
+    style = db.Column(db.String(40), nullable=False, default="friendly")
+    posts_per_day = db.Column(db.Integer, nullable=False, default=8)
+    interval_minutes = db.Column(db.Integer, nullable=False, default=70)
+    start_time = db.Column(db.String(5), nullable=False, default="09:00")
+    end_time = db.Column(db.String(5), nullable=False, default="23:00")
+    templates = db.Column(db.Text, nullable=False, default="")
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    paused = db.Column(db.Boolean, nullable=False, default=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Job(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     channel = db.Column(db.String(160), nullable=False)

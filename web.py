@@ -14,7 +14,7 @@ import requests
 
 from flask import Flask, flash, redirect, render_template_string, request, session, url_for, Response
 
-from app_common import Job, Media, configure, db, get_token, set_value, value
+from app_common import ChannelProfile, Job, Media, configure, db, get_token, set_value, value
 
 CAIRO = ZoneInfo("Africa/Cairo")
 app = Flask(__name__)
@@ -92,7 +92,8 @@ def _send_due_jobs():
                         db.session.commit()
                         if not claimed:
                             continue
-                        if value(f"paused_{job.channel}", "0") == "1":
+                        _profile = ChannelProfile.query.filter_by(channel=job.channel).first()
+                        if value(f"paused_{job.channel}", "0") == "1" or (_profile and (_profile.paused or not _profile.enabled)):
                             job.status = "pending"
                             db.session.commit()
                             continue
@@ -256,6 +257,35 @@ def similar_existing(channel, text, exclude_id=None):
     return None
 
 
+def profile_templates(profile):
+    values = [line.strip() for line in (profile.templates or "").split("|||") if line.strip()]
+    return values or ["اكتب صياغة مختلفة لهذا المنشور من لوحة القناة."]
+
+
+def create_profile_jobs(profile, day):
+    """Create a channel-specific plan using its own templates and interval."""
+    templates = profile_templates(profile)
+    used = {row.text for row in Job.query.filter(Job.channel == profile.channel).all()}
+    start = datetime.strptime(profile.start_time, "%H:%M").time()
+    base = datetime.combine(day, start).replace(tzinfo=CAIRO)
+    made = 0
+    for index in range(max(1, min(profile.posts_per_day, 100))):
+        body = templates[index % len(templates)]
+        candidate = body
+        if index % 3 == 1:
+            candidate = f"{body}\n\nخد وقتك وراجع التفاصيل قبل أي خطوة."
+        elif index % 3 == 2:
+            candidate = f"معلومة سريعة:\n{body}"
+        candidate = add_contact_line(candidate, profile.contact)
+        if candidate in used or similar_existing(profile.channel, candidate):
+            candidate = f"{candidate}\n\nتأكد من الخطوات واحدة واحدة."
+        used.add(candidate)
+        due = base + timedelta(minutes=index * max(1, profile.interval_minutes))
+        db.session.add(Job(channel=profile.channel, text=candidate, due_at=due.astimezone(ZoneInfo("UTC")).replace(tzinfo=None), source="profile"))
+        made += 1
+    return made
+
+
 # إصلاح أي خطة bulk معلّقة أُنشئت بالقوالب القديمة قبل تحديث LineBet.
 with app.app_context():
     _bulk_channel = value("channel_1") or "@Cretaiveplus"
@@ -336,7 +366,35 @@ def backup():
 def dashboard():
     if request.method == "POST":
         action = request.form.get("action")
-        if action == "settings":
+        if action == "profiles":
+            try:
+                for index in range(2):
+                    channel = request.form.get(f"profile_channel_{index}", "").strip()
+                    if not channel:
+                        continue
+                    profile = ChannelProfile.query.filter_by(channel=channel).first() or ChannelProfile(channel=channel)
+                    profile.contact = request.form.get(f"profile_contact_{index}", "").strip()
+                    profile.style = request.form.get(f"profile_style_{index}", "friendly").strip()[:40]
+                    profile.posts_per_day = max(1, min(100, int(request.form.get(f"profile_count_{index}", "8"))))
+                    profile.interval_minutes = max(5, min(1440, int(request.form.get(f"profile_interval_{index}", "70"))))
+                    profile.start_time = request.form.get(f"profile_start_{index}", "09:00")
+                    profile.end_time = request.form.get(f"profile_end_{index}", "23:00")
+                    profile.templates = request.form.get(f"profile_templates_{index}", "").strip()
+                    profile.enabled = bool(request.form.get(f"profile_enabled_{index}"))
+                    profile.paused = bool(request.form.get(f"profile_paused_{index}"))
+                    db.session.add(profile)
+                db.session.commit(); flash("تم حفظ إعدادات القناتين المستقلتين.", "ok")
+            except Exception as exc:
+                db.session.rollback(); flash(f"إعدادات القناة غير صحيحة: {exc}", "error")
+        elif action == "profile_plan":
+            try:
+                day = datetime.strptime(request.form.get("profile_day"), "%Y-%m-%d").date()
+                profiles = ChannelProfile.query.filter_by(enabled=True, paused=False).all()
+                made = sum(create_profile_jobs(profile, day) for profile in profiles)
+                db.session.commit(); flash(f"تم إنشاء {made} منشورًا بصيغ مستقلة لكل قناة.", "ok")
+            except Exception as exc:
+                db.session.rollback(); flash(str(exc), "error")
+        elif action == "settings":
             for index in range(3):
                 channel_key, contact_key, paused_key = f"channel_{index}", f"contact_{index}", f"paused_{index}"
                 if channel_key in request.form:
@@ -479,11 +537,13 @@ def dashboard():
     channel_values = [(value(f"channel_{index}"), value(f"contact_{index}")) for index in range(3)]
     channels = [row for row in channel_values if row[0]]
     channel_paused = [value(f"paused_{channel}", "0") == "1" for channel, _ in channels]
+    profiles = ChannelProfile.query.order_by(ChannelProfile.id).limit(2).all()
     inner = render_template_string(
-        DASHBOARD.replace("<div class='grid'>", CHANNEL_ADDON + BULK90 + "<div class='grid'>", 1),
+        DASHBOARD.replace("<div class='grid'>", PROFILE_UI + CHANNEL_ADDON + BULK90 + "<div class='grid'>", 1),
         jobs=jobs,
         channels=channels,
         channel_values=channel_values,
+        profiles=profiles,
         cairo_text=cairo_text,
         today=cairo_now().date().isoformat(),
         token_ready=bool(get_token()),
@@ -515,6 +575,8 @@ DASHBOARD = """<div class='top'><div style='display:flex;align-items:center;just
 
 
 CHANNEL_ADDON = """<section class='card' style='margin-top:18px'><h2>إضافة قناة إضافية</h2><p class='muted'>اكتب يوزر القناة بصيغة @channel ثم اضغط حفظ. ستظهر القناة فورًا في قائمة المنشور وخطة اليوم.</p><form method='post'><input type='hidden' name='action' value='settings'><div class='fields'><label>يوزر القناة</label><input name='channel_2' value='{{channel_values[2][0]}}' placeholder='@channel'><label>يوزر التواصل</label><input name='contact_2' value='{{channel_values[2][1]}}' placeholder='@username'><label class='pause'><input type='checkbox' name='paused_2' {% if channel_paused|length > 2 and channel_paused[2] %}checked{% endif %}> إيقاف القناة مؤقتًا</label></div><p><button>حفظ القناة</button> <a href='/backup'>تنزيل نسخة احتياطية</a></p></form></section>"""
+
+PROFILE_UI = """<section class='card'><h2>ملفات القناتين المستقلتين</h2><p class='muted'>لكل قناة صياغة وعدد وفاصل ووقت مختلف. افصل القوالب بعلامة ||| لمنع تكرار الشكل.</p><form method='post'><input type='hidden' name='action' value='profiles'>{% for i in range(2) %}{% set p = profiles[i] if profiles|length > i else none %}<div class='card' style='background:#0b1220;margin:12px 0'><h3>القناة {{i+1}}</h3><div class='fields'><label>القناة</label><input name='profile_channel_{{i}}' value='{{p.channel if p else (channels[i][0] if channels|length > i else "")}}' placeholder='@channel'><label>يوزر التواصل</label><input name='profile_contact_{{i}}' value='{{p.contact if p else (channels[i][1] if channels|length > i else "")}}'><label>الأسلوب</label><select name='profile_style_{{i}}'><option value='friendly'>ودي</option><option value='direct'>مباشر</option><option value='short'>مختصر</option></select><label>عدد المنشورات</label><input name='profile_count_{{i}}' type='number' min='1' max='100' value='{{p.posts_per_day if p else 8}}'><label>الفاصل بالدقائق</label><input name='profile_interval_{{i}}' type='number' min='5' value='{{p.interval_minutes if p else 70}}'><label>من</label><input name='profile_start_{{i}}' type='time' value='{{p.start_time if p else "09:00"}}'><label>إلى</label><input name='profile_end_{{i}}' type='time' value='{{p.end_time if p else "23:00"}}'><label>القوالب</label><textarea name='profile_templates_{{i}}' placeholder='قالب أول|||قالب ثاني|||قالب ثالث'>{{p.templates if p else ""}}</textarea><label class='pause'><input type='checkbox' name='profile_enabled_{{i}}' {% if not p or p.enabled %}checked{% endif %}> تفعيل القناة</label><label class='pause'><input type='checkbox' name='profile_paused_{{i}}' {% if p and p.paused %}checked{% endif %}> إيقاف مؤقت</label></div></div>{% endfor %}<button>حفظ ملفات القنوات</button></form><form method='post' style='margin-top:12px'><input type='hidden' name='action' value='profile_plan'><label>تاريخ إنشاء الخطة</label><input type='date' name='profile_day' value='{{today}}' required><button>إنشاء خطة القناتين</button></form></section>"""
 
 BULK90 = """<section class='card' style='margin-top:18px'><h2>خطة 90 منشورًا حتى غدًا 11 صباحًا</h2><p class='muted'>توزيع تلقائي من الآن حتى غدًا 11:00 بتوقيت القاهرة. لا تُحذف الخطط القديمة تلقائيًا.</p><form method='post'><input type='hidden' name='action' value='bulk_90'><button>جدولة 90 منشورًا</button></form></section>"""
 
